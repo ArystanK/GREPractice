@@ -1,0 +1,42 @@
+package kz.arctan.grepractice
+
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.jetbrains.compose.reload.DevelopmentEntryPoint
+import kz.arctan.grepractice.ui.BankScreen
+import kz.arctan.grepractice.ui.EditorScreen
+import kz.arctan.grepractice.ui.GreTheme
+import kz.arctan.grepractice.ui.HistoryScreen
+import kz.arctan.grepractice.ui.HomeScreen
+import kz.arctan.grepractice.ui.PlatformBackHandler
+import kz.arctan.grepractice.ui.RandomScreen
+import kz.arctan.grepractice.ui.ResultScreen
+import kz.arctan.grepractice.ui.SessionScreen
+import kz.arctan.grepractice.ui.SetupScreen
+import kz.arctan.grepractice.ui.TransferScreen
+
+@Composable
+@Preview
+@DevelopmentEntryPoint
+fun App() {
+    val vm = viewModel { AppViewModel() }
+    GreTheme {
+        Surface {
+            // The session screen handles back itself (it asks before quitting).
+            PlatformBackHandler(enabled = vm.backStack.size > 1 && vm.screen != Screen.Session) { vm.back() }
+            when (val screen = vm.screen) {
+                Screen.Home -> HomeScreen(vm)
+                is Screen.Setup -> SetupScreen(vm, screen)
+                Screen.Session -> SessionScreen(vm)
+                is Screen.Result -> ResultScreen(vm, screen.resultId)
+                Screen.Random -> RandomScreen(vm)
+                Screen.Bank -> BankScreen(vm)
+                is Screen.Editor -> EditorScreen(vm, screen.questionId)
+                Screen.Transfer -> TransferScreen(vm)
+                Screen.History -> HistoryScreen(vm)
+            }
+        }
+    }
+}
