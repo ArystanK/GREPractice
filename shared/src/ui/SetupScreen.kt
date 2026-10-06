@@ -36,6 +36,7 @@ import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.Question
 import kz.arctan.grepractice.practice.PracticeConfig
+import kz.arctan.grepractice.practice.isPracticeTestQuestion
 import kz.arctan.grepractice.practice.formatDuration
 import kotlin.math.roundToInt
 
@@ -51,7 +52,12 @@ fun SetupScreen(vm: AppViewModel, setup: Screen.Setup) {
     var selectedTopics by remember {
         mutableStateOf(if (exam || setup.topic == null) topics.toSet() else setOf(setup.topic))
     }
-    val pool = repo.questions.filter { it.topic in selectedTopics }
+    // Random exams leave the full practice tests' questions out by default, so the tests stay unseen.
+    val hasPracticeTests = exam && repo.questions.any { isPracticeTestQuestion(it.id) }
+    var includePracticeTests by remember { mutableStateOf(false) }
+    val pool = repo.questions.filter {
+        it.topic in selectedTopics && (!hasPracticeTests || includePracticeTests || !isPracticeTestQuestion(it.id))
+    }
     var count by remember { mutableIntStateOf(if (exam) Gre.EXAM_QUESTIONS else 10) }
     val effectiveCount = count.coerceIn(0, pool.size)
     var timing by remember { mutableStateOf(Timing.GrePace) }
@@ -68,7 +74,7 @@ fun SetupScreen(vm: AppViewModel, setup: Screen.Setup) {
     val canStart = effectiveCount > 0 && (timing != Timing.Custom || timeLimitMs != null)
 
     ScreenScaffold(
-        title = if (exam) "Simulated exam" else "Practice by topic",
+        title = if (exam) "Random exam" else "Practice by topic",
         onBack = vm::back,
         bottomBar = {
             CenteredBar {
@@ -87,7 +93,7 @@ fun SetupScreen(vm: AppViewModel, setup: Screen.Setup) {
                         vm.startSession(
                             PracticeConfig(
                                 mode = if (exam) PracticeMode.EXAM else PracticeMode.TOPIC,
-                                title = if (exam) "Simulated exam" else topicTitle(selectedTopics, topics.size),
+                                title = if (exam) "Random exam" else topicTitle(selectedTopics, topics.size),
                                 questions = picked,
                                 timeLimitMs = timeLimitMs,
                                 instantFeedback = instantFeedback,
@@ -108,9 +114,9 @@ fun SetupScreen(vm: AppViewModel, setup: Screen.Setup) {
                     Text(
                         "The real GRE Mathematics Subject Test has ${Gre.EXAM_QUESTIONS} questions in ${Gre.EXAM_MINUTES} minutes " +
                             "(about ${formatDuration(Gre.PACE_MS_PER_QUESTION)} per question): roughly 50% calculus, 25% algebra " +
-                            "and 25% additional topics. Questions are drawn from your whole bank." +
-                            if (repo.questions.size < Gre.EXAM_QUESTIONS) {
-                                " Your bank has ${repo.questions.size} questions, so the exam is shortened and the time limit scaled to match."
+                            "and 25% additional topics. Questions are drawn at random from your bank." +
+                            if (pool.size < Gre.EXAM_QUESTIONS) {
+                                " Only ${pool.size} questions are available, so the exam is shortened and the time limit scaled to match."
                             } else "",
                     )
                 }
@@ -200,6 +206,13 @@ fun SetupScreen(vm: AppViewModel, setup: Screen.Setup) {
                     "Questions you've never answered, or got wrong last time, are picked first.",
                     preferWeak,
                 ) { preferWeak = it }
+                if (hasPracticeTests) {
+                    OptionSwitch(
+                        "Include practice-test questions",
+                        "Also draw from the full practice tests. Leave off to keep those tests unseen for timed runs.",
+                        includePracticeTests,
+                    ) { includePracticeTests = it }
+                }
             }
         }
     }
