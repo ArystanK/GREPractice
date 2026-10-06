@@ -82,7 +82,13 @@ fun TransferScreen(vm: AppViewModel) {
                         enabled = importText.isNotBlank(),
                         onClick = {
                             message = runCatching { repo.importQuestionsJson(importText) }.fold(
-                                onSuccess = { n -> importText = ""; true to "Imported $n question${if (n == 1) "" else "s"}." },
+                                onSuccess = { r ->
+                                    importText = ""
+                                    true to buildString {
+                                        append("Imported ${r.imported} question${if (r.imported == 1) "" else "s"}.")
+                                        if (r.skippedDuplicates > 0) append(" Skipped ${r.skippedDuplicates} already in your bank.")
+                                    }
+                                },
                                 onFailure = { false to "Import failed: ${it.message}" },
                             )
                         },

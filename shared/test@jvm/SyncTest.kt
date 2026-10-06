@@ -116,6 +116,22 @@ class SyncTest {
     }
 
     @Test
+    fun removedDuplicatesStayRemovedAfterSync() {
+        val a = Repository()
+        a.upsertQuestion(a.questions.first { it.id == "sample-01" }.copy(id = "dup-of-01"))
+        a.sync()
+        val removedId = a.duplicateGroups().single()[1].id
+        assertEquals(1, a.removeDuplicates())
+        a.sync()
+        assertTrue(cloud.docs.getValue("questions/$removedId").deleted)
+
+        val b = freshDevice()
+        b.sync()
+        assertTrue(b.questions.none { it.id == removedId })
+        assertTrue(b.duplicateGroups().isEmpty())
+    }
+
+    @Test
     fun locallyDeletedResultIsNotResurrectedByCloud() {
         val a = Repository()
         a.practice()

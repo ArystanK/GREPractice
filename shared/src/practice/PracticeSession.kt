@@ -22,6 +22,8 @@ data class PracticeConfig(
     /** Reveal the correct answer right after each question instead of only at the end. */
     val instantFeedback: Boolean,
     val shuffleChoices: Boolean,
+    /** The practice test this session runs, if any. */
+    val testId: String? = null,
 )
 
 /** A question as presented in this session; [choices] may be shuffled relative to the bank. */
@@ -113,6 +115,7 @@ class PracticeSession(val config: PracticeConfig) {
             durationMs = duration,
             timeLimitMs = config.timeLimitMs,
             timedOut = timedOut,
+            testId = config.testId,
             answers = items.mapIndexed { i, item ->
                 AnswerRecord(
                     questionId = item.question.id,

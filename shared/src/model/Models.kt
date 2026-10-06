@@ -52,6 +52,8 @@ data class PracticeResult(
     val timeLimitMs: Long? = null,
     val timedOut: Boolean = false,
     val answers: List<AnswerRecord>,
+    /** Set when the session was one of the bank's practice tests (see PracticeTest), e.g. "practice2". */
+    val testId: String? = null,
 ) {
     val correct: Int get() = answers.count { it.isCorrect }
     val total: Int get() = answers.size

@@ -31,6 +31,7 @@ import kz.arctan.grepractice.AppViewModel
 import kz.arctan.grepractice.Screen
 import kz.arctan.grepractice.SyncState
 import kz.arctan.grepractice.model.Gre
+import kz.arctan.grepractice.practice.findPracticeTests
 import kz.arctan.grepractice.practice.formatDuration
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -60,10 +61,12 @@ fun HomeScreen(vm: AppViewModel) {
 
             Text("Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val practiceTests = findPracticeTests(repo.questions).size
                 ActionCard(
                     "Simulated exam",
-                    "${Gre.EXAM_QUESTIONS} questions · ${Gre.EXAM_MINUTES / 60} h ${Gre.EXAM_MINUTES % 60} min, answers revealed at the end",
-                ) { vm.navigate(Screen.Setup(exam = true)) }
+                    (if (practiceTests > 0) "$practiceTests practice test${if (practiceTests == 1) "" else "s"} or a random exam · " else "") +
+                        "${Gre.EXAM_QUESTIONS} questions in ${Gre.EXAM_MINUTES / 60} h ${Gre.EXAM_MINUTES % 60} min",
+                ) { vm.navigate(Screen.Exams) }
                 ActionCard("Practice by topic", "Pick topics, question count and timing") {
                     vm.navigate(Screen.Setup(exam = false))
                 }

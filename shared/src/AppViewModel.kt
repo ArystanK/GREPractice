@@ -24,7 +24,9 @@ import kz.arctan.grepractice.practice.PracticeSession
 
 sealed interface Screen {
     data object Home : Screen
-    /** [exam] = full simulated test; otherwise custom/topic practice, optionally preselecting [topic]. */
+    /** "Simulated exam": the bank's full practice tests plus the random exam. */
+    data object Exams : Screen
+    /** [exam] = randomly assembled full exam; otherwise custom/topic practice, optionally preselecting [topic]. */
     data class Setup(val exam: Boolean, val topic: String? = null) : Screen
     data object Session : Screen
     data class Result(val resultId: String) : Screen

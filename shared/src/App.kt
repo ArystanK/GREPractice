@@ -8,6 +8,7 @@ import org.jetbrains.compose.reload.DevelopmentEntryPoint
 import kz.arctan.grepractice.ui.AccountScreen
 import kz.arctan.grepractice.ui.BankScreen
 import kz.arctan.grepractice.ui.EditorScreen
+import kz.arctan.grepractice.ui.ExamsScreen
 import kz.arctan.grepractice.ui.GreTheme
 import kz.arctan.grepractice.ui.HistoryScreen
 import kz.arctan.grepractice.ui.HomeScreen
@@ -38,6 +39,7 @@ fun App() {
                 Screen.Transfer -> TransferScreen(vm)
                 Screen.History -> HistoryScreen(vm)
                 Screen.Account -> AccountScreen(vm)
+                Screen.Exams -> ExamsScreen(vm)
             }
         }
     }
