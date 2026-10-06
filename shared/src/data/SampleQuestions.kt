@@ -8,7 +8,7 @@ import kz.arctan.grepractice.model.Question
  */
 object SampleQuestions {
     /** Bump when sample content changes so existing installs get the new versions (see [Repository]). */
-    const val VERSION = 2
+    const val VERSION = 3
 
     private var counter = 0
 
@@ -201,17 +201,17 @@ object SampleQuestions {
 
         // ---- Discrete math ----
         q(
-            "Discrete Math", $$"""In how many distinct ways can the letters of MISSISSIPPI be arranged?""",
+            "Discrete Mathematics", $$"""In how many distinct ways can the letters of MISSISSIPPI be arranged?""",
             $$"""$3{,}465$ ;; $11{,}550$ ;; $34{,}650$ ;; $69{,}300$ ;; $39{,}916{,}800$""", 'C',
             $$"""$\dfrac{11!}{4! \, 4! \, 2!} = 34{,}650$ (four S's, four I's, two P's).""",
         ),
         q(
-            "Discrete Math", $$"""How many edges does the complete graph $K_{10}$ have?""",
+            "Discrete Mathematics", $$"""How many edges does the complete graph $K_{10}$ have?""",
             $$"""$10$ ;; $45$ ;; $20$ ;; $90$ ;; $100$""", 'B',
             $$"""$\binom{10}{2} = 45$.""",
         ),
         q(
-            "Discrete Math", $$"""How many integers from $1$ to $1000$, inclusive, are divisible by $3$ or by $5$?""",
+            "Discrete Mathematics", $$"""How many integers from $1$ to $1000$, inclusive, are divisible by $3$ or by $5$?""",
             $$"""$400$ ;; $466$ ;; $533$ ;; $467$ ;; $600$""", 'D',
             $$"""Inclusion–exclusion: $333 + 200 - 66 = 467$.""",
         ),

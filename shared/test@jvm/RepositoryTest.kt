@@ -4,6 +4,7 @@ import kz.arctan.grepractice.data.ImportSummary
 import kz.arctan.grepractice.data.Repository
 import kz.arctan.grepractice.data.SampleQuestions
 import kz.arctan.grepractice.data.dataLocation
+import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.practice.PracticeConfig
 import kz.arctan.grepractice.practice.PracticeSession
@@ -42,6 +43,7 @@ class RepositoryTest {
         SampleQuestions.all.forEach { q ->
             assertTrue(q.correctIndex in q.choices.indices, q.id)
             assertEquals(q.choices.size, q.choices.toSet().size, "duplicate choices in ${q.id}")
+            assertTrue(q.topic in Gre.defaultTopics, "sample ${q.id} uses topic \"${q.topic}\", which isn't in Gre.defaultTopics")
         }
     }
 

@@ -75,7 +75,7 @@ object Gre {
         "Real Analysis",
         "Complex Analysis",
         "Topology",
-        "Discrete Math",
+        "Discrete Mathematics",
         "Probability & Statistics",
         "Geometry",
         "Numerical Analysis",
