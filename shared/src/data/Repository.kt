@@ -14,6 +14,7 @@ import kz.arctan.grepractice.data.cloud.QUESTIONS_COLLECTION
 import kz.arctan.grepractice.data.cloud.RESULTS_COLLECTION
 import kz.arctan.grepractice.model.PracticeResult
 import kz.arctan.grepractice.model.Question
+import kz.arctan.grepractice.practice.isPracticeTestQuestion
 import kotlin.random.Random
 
 private const val QUESTIONS_FILE = "questions.json"
@@ -50,6 +51,24 @@ fun newId(): String = nowMillis().toString(36) + Random.nextInt(0, Int.MAX_VALUE
 data class TopicStats(val topic: String, val answered: Int, val correct: Int, val avgTimeMs: Long) {
     val percent: Int get() = if (answered == 0) 0 else (correct * 100 + answered / 2) / answered
 }
+
+/** What [Repository.importQuestionsJson] did. */
+data class ImportSummary(val imported: Int, val skippedDuplicates: Int)
+
+private val Whitespace = Regex("""\s+""")
+
+private fun normalized(s: String) = s.replace(Whitespace, "").lowercase()
+
+/** Identity of a question's content, for finding the same question stored under different ids. */
+private fun contentKey(q: Question) = Triple(normalized(q.text), q.choices.map(::normalized), q.correctIndex)
+
+/** Which duplicate to keep: practice-test questions, then ones with an explanation, then the oldest. */
+private val KeepOrder = compareBy<Question>(
+    { !isPracticeTestQuestion(it.id) },
+    { it.explanation.isBlank() },
+    { it.createdAt },
+    { it.id },
+)
 
 /** Outcome of [Repository.mergeRemote]: what changed locally and what must be uploaded. */
 class SyncPlan(val downloaded: Int, val uploads: List<CloudWrite>)
@@ -130,11 +149,38 @@ class Repository {
         localChange()
     }
 
-    fun deleteQuestion(id: String) {
-        questions.removeAll { it.id == id }
+    fun deleteQuestion(id: String) = deleteQuestions(setOf(id))
+
+    private fun deleteQuestions(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val now = nowMillis()
+        questions.removeAll { it.id in ids }
         saveQuestions()
-        saveMeta(meta.copy(deletedQuestions = meta.deletedQuestions + (id to nowMillis())))
+        saveMeta(meta.copy(deletedQuestions = meta.deletedQuestions + ids.associateWith { now }))
         localChange()
+    }
+
+    /**
+     * Groups of questions that are the same question under different ids: identical text, choices
+     * and correct answer, ignoring whitespace and letter case. The question to keep comes first.
+     */
+    fun duplicateGroups(): List<List<Question>> =
+        questions.groupBy(::contentKey).values
+            .filter { it.size > 1 }
+            .map { it.sortedWith(KeepOrder) }
+
+    /** Deletes all but the first question of each [duplicateGroups] group (deletions sync). Returns how many were removed. */
+    fun removeDuplicates(): Int {
+        val groups = duplicateGroups()
+        groups.forEach { group ->
+            // Don't lose an explanation that only a removed copy had.
+            val keep = group.first()
+            val explanation = group.firstOrNull { it.explanation.isNotBlank() }?.explanation
+            if (keep.explanation.isBlank() && explanation != null) putQuestion(keep.copy(explanation = explanation, updatedAt = nowMillis()))
+        }
+        val removed = groups.flatMap { it.drop(1) }.map { it.id }.toSet()
+        deleteQuestions(removed)
+        return removed.size
     }
 
     /** Re-adds any built-in sample questions that are missing. Returns how many were added. */
@@ -188,9 +234,11 @@ class Repository {
     /**
      * Imports questions from a JSON array. Each item needs `topic`, `text`, `choices` and either
      * `correctIndex` (0-based) or `answer` (a letter such as "C"). Items whose `id` matches an
-     * existing question replace it. Returns the number of questions imported.
+     * existing question replace it. A question that's already in the bank under another id (see
+     * [duplicateGroups]) is skipped, unless the new copy is the one to keep (e.g. a practice-test id
+     * replacing a random-id copy), in which case the old copy is deleted.
      */
-    fun importQuestionsJson(text: String): Int {
+    fun importQuestionsJson(text: String): ImportSummary {
         val items = json.decodeFromString(ListSerializer(ImportedQuestion.serializer()), text)
         val now = nowMillis()
         val imported = items.mapIndexed { i, item ->
@@ -211,10 +259,26 @@ class Repository {
                 updatedAt = now,
             )
         }
-        imported.forEach(::putQuestion)
+        val byContent = questions.groupBy(::contentKey).mapValues { it.value.toMutableList() }.toMutableMap()
+        val replaced = mutableSetOf<String>()
+        var skipped = 0
+        val accepted = imported.filter { q ->
+            val copies = byContent.getOrPut(contentKey(q)) { mutableListOf() }
+            val others = copies.filter { it.id != q.id }
+            val accept = others.isEmpty() || KeepOrder.compare(q, others.minWith(KeepOrder)) < 0
+            if (accept) {
+                replaced += others.map { it.id }
+                copies.clear()
+                copies += q
+            } else {
+                skipped++
+            }
+            accept
+        }
+        accepted.forEach(::putQuestion)
         saveQuestions()
-        localChange()
-        return imported.size
+        if (replaced.isNotEmpty()) deleteQuestions(replaced) else localChange()
+        return ImportSummary(imported = accepted.size, skippedDuplicates = skipped)
     }
 
     /**

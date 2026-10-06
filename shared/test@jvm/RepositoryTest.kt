@@ -1,5 +1,6 @@
 package kz.arctan.grepractice
 
+import kz.arctan.grepractice.data.ImportSummary
 import kz.arctan.grepractice.data.Repository
 import kz.arctan.grepractice.data.SampleQuestions
 import kz.arctan.grepractice.data.dataLocation
@@ -56,10 +57,40 @@ class RepositoryTest {
             ]
             """,
         )
-        assertEquals(2, n)
+        assertEquals(ImportSummary(imported = 2, skippedDuplicates = 0), n)
         val reloaded = Repository()
         assertEquals(before + 2, reloaded.questions.size)
         assertEquals(1, reloaded.questions.first { it.text == "1+1" }.correctIndex)
+    }
+
+    @Test
+    fun removesDuplicatesKeepingPracticeTestCopy() {
+        val repo = Repository()
+        val sampleCount = repo.questions.size
+        repo.importQuestionsJson(
+            """
+            [
+              {"topic": "Calculus", "text": "${'$'}x^2${'$'} at 3", "choices": ["6", "9"], "answer": "B"},
+              {"id": "practice7-01", "topic": "Calculus", "text": "${'$'}x^2${'$'}  at 3", "choices": ["6", " 9"], "answer": "B"},
+              {"topic": "Calculus", "text": "same text", "choices": ["1", "2"], "answer": "A", "explanation": "kept"},
+              {"topic": "Calculus", "text": "same text", "choices": ["1", "2"], "answer": "B"}
+            ]
+            """,
+        )
+        // The practice-test copy replaced the random-id one during import; "same text" differs in its answer.
+        assertEquals(sampleCount + 3, repo.questions.size)
+        assertTrue(repo.duplicateGroups().isEmpty())
+
+        // Duplicates that predate the import check are still found and removed, keeping the practice-test copy.
+        repo.upsertQuestion(repo.questions.first { it.id == "practice7-01" }.copy(id = "random-copy"))
+        assertEquals(listOf("practice7-01", "random-copy"), repo.duplicateGroups().single().map { it.id })
+        assertEquals(1, repo.removeDuplicates())
+        assertTrue(repo.questions.any { it.id == "practice7-01" } && repo.questions.none { it.id == "random-copy" })
+
+        // Re-importing something already in the bank is skipped.
+        val again = repo.importQuestionsJson("""[{"topic": "Calculus", "text": "same text", "choices": ["1", "2"], "answer": "A"}]""")
+        assertEquals(ImportSummary(imported = 0, skippedDuplicates = 1), again)
+        assertEquals(sampleCount + 3, Repository().questions.size)
     }
 
     @Test

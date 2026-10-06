@@ -16,6 +16,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.Button
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +40,11 @@ fun BankScreen(vm: AppViewModel) {
     var search by remember { mutableStateOf("") }
     var topic by remember { mutableStateOf<String?>(null) }
     var toDelete by remember { mutableStateOf<Question?>(null) }
+    var confirmDedupe by remember { mutableStateOf(false) }
+    var dedupeMessage by remember { mutableStateOf<String?>(null) }
+    // Recomputed whenever the question list changes, including changes pulled in by sync.
+    val duplicateGroups by remember { derivedStateOf { repo.duplicateGroups() } }
+    val duplicateCount = duplicateGroups.sumOf { it.size - 1 }
 
     // Latest-attempt stats per question id.
     val history = remember(repo.results.size) {
@@ -54,6 +61,20 @@ fun BankScreen(vm: AppViewModel) {
         actions = { TextButton(onClick = { vm.navigate(Screen.Editor(null)) }) { Text("+ Add question") } },
     ) { padding ->
         LazyColumn(contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (duplicateCount > 0 || dedupeMessage != null) {
+                item {
+                    SectionCard {
+                        if (duplicateCount > 0) {
+                            Text(
+                                "$duplicateCount duplicate question${if (duplicateCount == 1) "" else "s"}: the same text, choices and answer stored more than once.",
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Button(onClick = { confirmDedupe = true }) { Text("Remove duplicates") }
+                        }
+                        dedupeMessage?.let { Text(it, color = LocalFeedbackColors.current.correct) }
+                    }
+                }
+            }
             item {
                 OutlinedTextField(
                     value = search,
@@ -114,6 +135,21 @@ fun BankScreen(vm: AppViewModel) {
             confirmLabel = "Delete",
             onConfirm = { repo.deleteQuestion(q.id); toDelete = null },
             onDismiss = { toDelete = null },
+        )
+    }
+
+    if (confirmDedupe) {
+        ConfirmDialog(
+            title = "Remove $duplicateCount duplicate${if (duplicateCount == 1) "" else "s"}?",
+            text = "One copy of each question is kept: the practice-test copy if there is one, otherwise the copy with an " +
+                "explanation, otherwise the oldest. Past results are not affected, and the removal syncs to your other devices.",
+            confirmLabel = "Remove",
+            onConfirm = {
+                val removed = repo.removeDuplicates()
+                confirmDedupe = false
+                dedupeMessage = "Removed $removed duplicate${if (removed == 1) "" else "s"}."
+            },
+            onDismiss = { confirmDedupe = false },
         )
     }
 }
