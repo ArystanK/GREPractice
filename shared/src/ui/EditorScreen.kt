@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
@@ -38,21 +37,60 @@ import kz.arctan.grepractice.data.newId
 import kz.arctan.grepractice.data.nowMillis
 import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.model.Question
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.sp
+import kz.arctan.grepractice.ui.math.LatexFormula
+import kz.arctan.grepractice.ui.math.MathText
+import kz.arctan.grepractice.ui.math.isInsideMath
 
 private const val MIN_CHOICES = 2
 private const val MAX_CHOICES = 8
 
-/** Unicode symbols for writing math without LaTeX. */
-private val Symbols = listOf(
-    "²", "³", "ⁿ", "⁻¹", "₀", "₁", "₂", "ₙ", "√", "∛", "π", "e", "∞", "±", "·", "×", "÷",
-    "≤", "≥", "≠", "≈", "≡", "→", "↦", "⇒", "⇔", "∫", "∮", "∑", "∏", "∂", "∇", "lim",
-    "∈", "∉", "⊂", "⊆", "∪", "∩", "∅", "∀", "∃", "ℕ", "ℤ", "ℚ", "ℝ", "ℂ", "|z|",
-    "α", "β", "γ", "δ", "ε", "θ", "λ", "μ", "σ", "φ", "ω", "Δ", "Σ", "Ω", "°", "′", "″",
+/**
+ * A LaTeX snippet for the palette: [label] is rendered on the button and [insert] goes into the
+ * field. The cursor lands at a `‸` marker, else inside the first `{}` / `[]`, else after the snippet.
+ */
+private class Snippet(val label: String, insert: String = label) {
+    val insert: String = insert.replace("‸", "")
+    val cursor: Int = insert.indexOf('‸').takeIf { it >= 0 }
+        ?: listOf(insert.indexOf("{}"), insert.indexOf("[]")).filter { it >= 0 }.minOrNull()?.plus(1)
+        ?: insert.length
+}
+
+/** Argument-less commands get a trailing space so a following letter doesn't merge into the command name. */
+private fun cmd(vararg names: String) = names.map { Snippet("\\$it", "\\$it ") }
+
+private val Snippets: List<Snippet> = listOf(
+    Snippet("x^{n}", "^{}"), Snippet("x_{n}", "_{}"), Snippet("\\frac{a}{b}", "\\frac{}{}"),
+    Snippet("\\sqrt{x}", "\\sqrt{}"), Snippet("\\sqrt[n]{x}", "\\sqrt[]{}"),
+    Snippet("\\int_a^b", "\\int_{}^{} "), Snippet("\\oint", "\\oint_{} "), Snippet("\\iint", "\\iint_{} "),
+    Snippet("\\sum", "\\sum_{}^{} "), Snippet("\\prod", "\\prod_{}^{} "), Snippet("\\lim", "\\lim_{x \\to ‸} "),
+    Snippet("\\binom{n}{k}", "\\binom{}{}"), Snippet("|x|", "\\lvert ‸ \\rvert"), Snippet("(x)", "\\left( ‸ \\right)"),
+    Snippet("\\overline{x}", "\\overline{}"), Snippet("\\hat{x}", "\\hat{}"), Snippet("\\vec{v}", "\\vec{}"),
+    Snippet("\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}", "\\begin{pmatrix} ‸ &  \\\\  &  \\end{pmatrix}"),
+    Snippet("\\mathbb{R}"), Snippet("\\mathbb{Z}"), Snippet("\\mathbb{Q}"), Snippet("\\mathbb{C}"), Snippet("\\mathbb{N}"),
+) + cmd(
+    "infty", "pi", "pm", "cdot", "times", "le", "ge", "ne", "approx", "equiv", "to", "mapsto", "Rightarrow", "iff",
+    "in", "notin", "subseteq", "subset", "cup", "cap", "emptyset", "forall", "exists", "partial", "nabla",
+    "sin", "cos", "tan", "ln", "log", "det", "dim", "ker",
+    "alpha", "beta", "gamma", "delta", "varepsilon", "theta", "lambda", "mu", "sigma", "varphi", "omega", "Delta", "Sigma", "Omega",
 )
 
-private fun TextFieldValue.insert(s: String): TextFieldValue {
+private fun TextFieldValue.insertSnippet(snippet: Snippet): TextFieldValue {
     val start = selection.min
-    return TextFieldValue(text.replaceRange(start, selection.max, s), TextRange(start + s.length))
+    // Outside math, wrap the snippet in $…$ so it renders.
+    val wrap = !isInsideMath(text, start)
+    val inserted = if (wrap) "$" + snippet.insert + "$" else snippet.insert
+    val cursor = start + snippet.cursor + if (wrap) 1 else 0
+    return TextFieldValue(text.replaceRange(start, selection.max, inserted), TextRange(cursor))
+}
+
+/** Wraps the selection in `$…$`, or inserts an empty pair with the cursor inside. */
+private fun TextFieldValue.wrapMath(): TextFieldValue {
+    val sel = text.substring(selection.min, selection.max)
+    return TextFieldValue(text.replaceRange(selection.min, selection.max, "$" + sel + "$"), TextRange(selection.min + 1 + sel.length))
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -70,7 +108,7 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
     }
     var correct by remember { mutableIntStateOf(existing?.correctIndex ?: -1) }
     var explanation by remember { mutableStateOf(TextFieldValue(existing?.explanation ?: "")) }
-    /** Which field the symbol palette inserts into: "topic", "text", "expl", or a choice index as a string. */
+    /** Which field the LaTeX palette edits: "text", "expl", or a choice index as a string. */
     var activeField by remember { mutableStateOf("text") }
     var showErrors by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -84,12 +122,11 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
         if (correct !in choices.indices) add("Mark the correct answer with the radio button.")
     }
 
-    fun insertSymbol(s: String) {
+    fun editActive(edit: (TextFieldValue) -> TextFieldValue) {
         when (activeField) {
-            "topic" -> topic = topic.insert(s)
-            "text" -> text = text.insert(s)
-            "expl" -> explanation = explanation.insert(s)
-            else -> activeField.toIntOrNull()?.takeIf { it in choices.indices }?.let { choices[it] = choices[it].insert(s) }
+            "text" -> text = edit(text)
+            "expl" -> explanation = edit(explanation)
+            else -> activeField.toIntOrNull()?.takeIf { it in choices.indices }?.let { choices[it] = edit(choices[it]) }
         }
     }
 
@@ -141,7 +178,7 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
                     label = { Text("Topic") },
                     singleLine = true,
                     isError = showErrors && topic.text.isBlank(),
-                    modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) activeField = "topic" },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     (repo.topics + Gre.defaultTopics).distinct().sorted().forEach { t ->
@@ -159,7 +196,13 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
                     isError = showErrors && text.text.isBlank(),
                     modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) activeField = "text" },
                 )
-                SymbolPalette(::insertSymbol)
+                Text(
+                    "Write math in LaTeX: \$…\$ inline, \$\$…\$\$ on its own line, \\\$ for a literal dollar sign. " +
+                        "This works in the question, the choices and the explanation.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                MathPalette(onSnippet = { sn -> editActive { it.insertSnippet(sn) } }, onWrap = { editActive { it.wrapMath() } })
             }
 
             SectionCard(title = "Answer choices") {
@@ -207,6 +250,20 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
                 )
             }
 
+            SectionCard(title = "Preview") {
+                if (text.text.isBlank()) {
+                    Text("The rendered question appears here as you type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    QuestionText(text.text)
+                }
+                choices.forEachIndexed { i, value ->
+                    if (value.text.isNotBlank()) {
+                        ChoiceRow(i, value.text, if (i == correct) ChoiceState.MissedCorrect else ChoiceState.Normal, onClick = null)
+                    }
+                }
+                if (explanation.text.isNotBlank()) MathText(explanation.text, style = MaterialTheme.typography.bodyLarge)
+            }
+
             if (showErrors && errors.isNotEmpty()) {
                 SectionCard {
                     errors.forEach { Text("• $it", color = MaterialTheme.colorScheme.error) }
@@ -232,26 +289,32 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SymbolPalette(onInsert: (String) -> Unit) {
+private fun MathPalette(onSnippet: (Snippet) -> Unit, onWrap: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            "Insert symbol into the focused field:",
+            "Insert into the focused field (\$…\$ is added automatically outside math):",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Symbols.forEach { s ->
-                Surface(
-                    onClick = { onInsert(s) },
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.size(width = if (s.length > 2) 44.dp else 34.dp, height = 34.dp),
-                ) {
-                    androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
-                        Text(s, fontWeight = FontWeight.Medium)
-                    }
+            PaletteButton(onClick = onWrap) { Text("\$…\$", fontWeight = FontWeight.Bold) }
+            Snippets.forEach { sn ->
+                PaletteButton(onClick = { onSnippet(sn) }) {
+                    LatexFormula(sn.label, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PaletteButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier.heightIn(min = 36.dp).widthIn(min = 36.dp),
+    ) {
+        Box(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), contentAlignment = Alignment.Center) { content() }
     }
 }

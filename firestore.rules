@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// GRE Math Practice: each signed-in user can read and write only their own synced data at
+// users/{uid}/questions/{id} and users/{uid}/results/{id}. Everything else is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{collection}/{docId} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      // Synced records: a JSON payload (empty for deletions), an edit timestamp and a tombstone flag.
+      function isValidRecord() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['payload', 'updatedAt', 'deleted'])
+          && d.payload is string && d.payload.size() < 900000
+          && d.updatedAt is int
+          && d.deleted is bool;
+      }
+
+      allow read: if isOwner() && collection in ['questions', 'results'];
+      allow create, update: if isOwner() && collection in ['questions', 'results'] && isValidRecord();
+      allow delete: if isOwner() && collection in ['questions', 'results'];
+    }
+  }
+}

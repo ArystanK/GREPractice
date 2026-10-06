@@ -1,10 +1,17 @@
 package kz.arctan.grepractice.data
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kz.arctan.grepractice.data.cloud.CloudDoc
+import kz.arctan.grepractice.data.cloud.CloudWrite
+import kz.arctan.grepractice.data.cloud.QUESTIONS_COLLECTION
+import kz.arctan.grepractice.data.cloud.RESULTS_COLLECTION
 import kz.arctan.grepractice.model.PracticeResult
 import kz.arctan.grepractice.model.Question
 import kotlin.random.Random
@@ -13,9 +20,16 @@ private const val QUESTIONS_FILE = "questions.json"
 private const val RESULTS_FILE = "results.json"
 private const val META_FILE = "meta.json"
 
-/** Small bookkeeping file; [samplesVersion] tracks which [SampleQuestions.VERSION] the bank was seeded or upgraded with. */
+/**
+ * Small bookkeeping file. [samplesVersion] tracks which [SampleQuestions.VERSION] the bank was
+ * seeded or upgraded with; the tombstones map deleted ids to deletion time so deletes reach the cloud.
+ */
 @Serializable
-private data class Meta(val samplesVersion: Int = 1)
+private data class Meta(
+    val samplesVersion: Int = 1,
+    val deletedQuestions: Map<String, Long> = emptyMap(),
+    val deletedResults: Map<String, Long> = emptyMap(),
+)
 
 internal val json = Json {
     prettyPrint = true
@@ -24,12 +38,21 @@ internal val json = Json {
     isLenient = true
 }
 
+/** Compact encoding for cloud payloads. */
+private val syncJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
 fun newId(): String = nowMillis().toString(36) + Random.nextInt(0, Int.MAX_VALUE).toString(36)
 
 /** Per-topic aggregate over every saved answer. */
 data class TopicStats(val topic: String, val answered: Int, val correct: Int, val avgTimeMs: Long) {
     val percent: Int get() = if (answered == 0) 0 else (correct * 100 + answered / 2) / answered
 }
+
+/** Outcome of [Repository.mergeRemote]: what changed locally and what must be uploaded. */
+class SyncPlan(val downloaded: Int, val uploads: List<CloudWrite>)
 
 /**
  * Holds the question bank and practice history in Compose state, persisting every change to JSON
@@ -43,12 +66,20 @@ class Repository {
     var loadError: String? = null
         private set
 
+    /** Incremented on every local change (not on changes pulled from the cloud); drives auto-sync. */
+    var version by mutableIntStateOf(0)
+        private set
+
+    private var meta: Meta = readDataFile(META_FILE)
+        ?.let { runCatching { json.decodeFromString(Meta.serializer(), it) }.getOrNull() }
+        ?: Meta()
+
     init {
         val storedQuestions = readDataFile(QUESTIONS_FILE)
         if (storedQuestions == null) {
             questions.addAll(SampleQuestions.all)
             saveQuestions()
-            saveMeta(Meta(SampleQuestions.VERSION))
+            saveMeta(meta.copy(samplesVersion = SampleQuestions.VERSION))
         } else {
             runCatching { json.decodeFromString(ListSerializer(Question.serializer()), storedQuestions) }
                 .onSuccess {
@@ -75,56 +106,68 @@ class Repository {
      * text) with the current ones. Samples the user deleted stay deleted.
      */
     private fun upgradeSamples() {
-        val meta = readDataFile(META_FILE)?.let { runCatching { json.decodeFromString(Meta.serializer(), it) }.getOrNull() } ?: Meta()
         if (meta.samplesVersion >= SampleQuestions.VERSION) return
         val current = SampleQuestions.all.associateBy { it.id }
+        val now = nowMillis()
         questions.indices.forEach { i ->
-            current[questions[i].id]?.let { questions[i] = it.copy(createdAt = questions[i].createdAt) }
+            current[questions[i].id]?.let { questions[i] = it.copy(createdAt = questions[i].createdAt, updatedAt = now) }
         }
         saveQuestions()
-        saveMeta(Meta(SampleQuestions.VERSION))
+        saveMeta(meta.copy(samplesVersion = SampleQuestions.VERSION))
     }
 
-    private fun saveMeta(meta: Meta) {
-        writeDataFile(META_FILE, json.encodeToString(Meta.serializer(), meta))
+    private fun saveMeta(newMeta: Meta) {
+        meta = newMeta
+        writeDataFile(META_FILE, json.encodeToString(Meta.serializer(), newMeta))
     }
 
     val topics: List<String>
         get() = questions.map { it.topic }.distinct().sorted()
 
     fun upsertQuestion(question: Question) {
-        val index = questions.indexOfFirst { it.id == question.id }
-        if (index >= 0) questions[index] = question else questions.add(question)
+        putQuestion(question.copy(updatedAt = nowMillis()))
         saveQuestions()
+        localChange()
     }
 
     fun deleteQuestion(id: String) {
         questions.removeAll { it.id == id }
         saveQuestions()
+        saveMeta(meta.copy(deletedQuestions = meta.deletedQuestions + (id to nowMillis())))
+        localChange()
     }
 
     /** Re-adds any built-in sample questions that are missing. Returns how many were added. */
     fun restoreSamples(): Int {
         val existing = questions.map { it.id }.toSet()
+        val now = nowMillis()
         val missing = SampleQuestions.all.filter { it.id !in existing }
-        questions.addAll(missing)
+        missing.forEach { putQuestion(it.copy(updatedAt = now)) }
         saveQuestions()
+        if (missing.isNotEmpty()) localChange()
         return missing.size
     }
 
     fun addResult(result: PracticeResult) {
         results.add(0, result)
         saveResults()
+        localChange()
     }
 
     fun deleteResult(id: String) {
         results.removeAll { it.id == id }
         saveResults()
+        saveMeta(meta.copy(deletedResults = meta.deletedResults + (id to nowMillis())))
+        localChange()
     }
 
     fun clearResults() {
+        val now = nowMillis()
+        val ids = results.map { it.id }
         results.clear()
         saveResults()
+        saveMeta(meta.copy(deletedResults = meta.deletedResults + ids.associateWith { now }))
+        localChange()
     }
 
     fun topicStats(): List<TopicStats> =
@@ -149,6 +192,7 @@ class Repository {
      */
     fun importQuestionsJson(text: String): Int {
         val items = json.decodeFromString(ListSerializer(ImportedQuestion.serializer()), text)
+        val now = nowMillis()
         val imported = items.mapIndexed { i, item ->
             val correct = item.correctIndex
                 ?: item.answer?.trim()?.uppercase()?.singleOrNull()?.let { it - 'A' }
@@ -163,15 +207,104 @@ class Repository {
                 choices = item.choices,
                 correctIndex = correct,
                 explanation = item.explanation,
-                createdAt = nowMillis(),
+                createdAt = now,
+                updatedAt = now,
             )
         }
-        imported.forEach { q ->
-            val index = questions.indexOfFirst { it.id == q.id }
-            if (index >= 0) questions[index] = q else questions.add(q)
-        }
+        imported.forEach(::putQuestion)
         saveQuestions()
+        localChange()
         return imported.size
+    }
+
+    /**
+     * Two-way merge with the cloud copy. Questions: the most recently edited version wins, whether
+     * it's an edit or a deletion. Results never change after they're saved, so they're merged as a
+     * union, and a deletion on either side wins. Remote winners are applied locally right away; the
+     * returned plan lists the local winners that must be uploaded.
+     */
+    fun mergeRemote(remoteQuestions: List<CloudDoc>, remoteResults: List<CloudDoc>): SyncPlan {
+        var downloaded = 0
+        val uploads = mutableListOf<CloudWrite>()
+        val deletedQuestions = meta.deletedQuestions.toMutableMap()
+        val deletedResults = meta.deletedResults.toMutableMap()
+
+        // ---- Questions ----
+        val localQuestions = questions.associateBy { it.id }
+        val remoteQ = remoteQuestions.associateBy { it.id }
+        for (id in localQuestions.keys + deletedQuestions.keys + remoteQ.keys) {
+            val local = localQuestions[id]
+            val localTime = local?.updatedAt ?: deletedQuestions[id]
+            val remote = remoteQ[id]
+            when {
+                remote != null && (localTime == null || remote.updatedAt > localTime) -> {
+                    if (remote.deleted) {
+                        if (local != null) {
+                            questions.removeAll { it.id == id }
+                            downloaded++
+                        }
+                        deletedQuestions[id] = remote.updatedAt
+                    } else {
+                        val q = runCatching { syncJson.decodeFromString(Question.serializer(), remote.payload) }.getOrNull() ?: continue
+                        putQuestion(q.copy(updatedAt = remote.updatedAt))
+                        deletedQuestions.remove(id)
+                        downloaded++
+                    }
+                }
+                localTime != null && (remote == null || remote.updatedAt < localTime) -> {
+                    uploads += if (local != null) {
+                        CloudWrite(QUESTIONS_COLLECTION, CloudDoc(id, syncJson.encodeToString(Question.serializer(), local), local.updatedAt, false))
+                    } else {
+                        CloudWrite(QUESTIONS_COLLECTION, CloudDoc(id, "", localTime, true))
+                    }
+                }
+            }
+        }
+
+        // ---- Results ----
+        val localResults = results.associateBy { it.id }
+        val remoteR = remoteResults.associateBy { it.id }
+        for (doc in remoteResults.filter { it.deleted }) {
+            if (doc.id in localResults) {
+                results.removeAll { it.id == doc.id }
+                downloaded++
+            }
+            deletedResults[doc.id] = doc.updatedAt
+        }
+        for (doc in remoteResults.filter { !it.deleted && it.id !in localResults }) {
+            if (doc.id in deletedResults) continue
+            val r = runCatching { syncJson.decodeFromString(PracticeResult.serializer(), doc.payload) }.getOrNull() ?: continue
+            results.add(r)
+            downloaded++
+        }
+        for ((id, deletedAt) in deletedResults) {
+            if (remoteR[id]?.deleted != true) uploads += CloudWrite(RESULTS_COLLECTION, CloudDoc(id, "", deletedAt, true))
+        }
+        for (r in localResults.values) {
+            if (r.id !in remoteR && r.id !in deletedResults) {
+                uploads += CloudWrite(RESULTS_COLLECTION, CloudDoc(r.id, syncJson.encodeToString(PracticeResult.serializer(), r), r.startedAt, false))
+            }
+        }
+
+        if (downloaded > 0) {
+            results.sortByDescending { it.startedAt }
+            saveQuestions()
+            saveResults()
+        }
+        if (deletedQuestions != meta.deletedQuestions || deletedResults != meta.deletedResults) {
+            saveMeta(meta.copy(deletedQuestions = deletedQuestions, deletedResults = deletedResults))
+        }
+        return SyncPlan(downloaded, uploads)
+    }
+
+    private fun putQuestion(q: Question) {
+        val index = questions.indexOfFirst { it.id == q.id }
+        if (index >= 0) questions[index] = q else questions.add(q)
+        if (q.id in meta.deletedQuestions) saveMeta(meta.copy(deletedQuestions = meta.deletedQuestions - q.id))
+    }
+
+    private fun localChange() {
+        version++
     }
 
     private fun saveQuestions() {

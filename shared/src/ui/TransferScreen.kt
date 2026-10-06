@@ -27,14 +27,14 @@ import androidx.compose.ui.unit.dp
 import kz.arctan.grepractice.AppViewModel
 import kz.arctan.grepractice.data.dataLocation
 
-private val ImportExample = """
+private val ImportExample = $$"""
 [
   {
     "topic": "Calculus",
-    "text": "∫₀¹ 2x dx =",
-    "choices": ["0", "1/2", "1", "2", "4"],
+    "text": "$\\int_0^1 2x \\, dx =$",
+    "choices": ["$0$", "$\\frac{1}{2}$", "$1$", "$2$", "$4$"],
     "answer": "C",
-    "explanation": "x² from 0 to 1 is 1."
+    "explanation": "$\\left[x^2\\right]_0^1 = 1$."
   }
 ]
 """.trimIndent()
@@ -62,7 +62,8 @@ fun TransferScreen(vm: AppViewModel) {
             SectionCard(title = "Import questions") {
                 Text(
                     "Paste a JSON array. Each question needs topic, text, choices, and either \"answer\" (a letter) or " +
-                        "\"correctIndex\" (0-based). An optional \"id\" that matches an existing question replaces it.",
+                        "\"correctIndex\" (0-based). An optional \"id\" that matches an existing question replaces it. " +
+                        "Math is LaTeX between \$…\$; inside JSON strings every backslash must be doubled (\\\\frac).",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 SelectionContainer {
