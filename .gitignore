@@ -9,3 +9,7 @@ captures
 !**/module.xcodeproj/project.xcworkspace/
 **/xcshareddata/WorkspaceSettings.xcsettings
 xcuserdata
+
+# Local secrets (see shared/src/data/cloud/FirebaseSecrets.kt.example)
+shared/src/data/cloud/FirebaseSecrets.kt
+google-services.json

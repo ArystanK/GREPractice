@@ -54,7 +54,7 @@ fun MathText(
     color: Color = Color.Unspecified,
     maxLines: Int = Int.MAX_VALUE,
 ) {
-    val segments = remember(text) { parseMath(text) }
+    val segments = remember(text) { prepareSegments(parseMath(text)) }
     if (segments.none { it !is MathSegment.Text }) {
         Text(text = segments.joinToString("") { (it as MathSegment.Text).text }, modifier = modifier, style = style, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
         return
@@ -156,6 +156,20 @@ private fun InlineParagraph(
     )
 }
 
+/** Fixes minus signs and drops whitespace next to display formulas, which sit on their own line anyway. */
+private fun prepareSegments(segments: List<MathSegment>): List<MathSegment> = segments.mapIndexedNotNull { i, seg ->
+    when (seg) {
+        is MathSegment.Inline -> MathSegment.Inline(normalizeMath(seg.latex))
+        is MathSegment.Display -> MathSegment.Display(normalizeMath(seg.latex))
+        is MathSegment.Text -> {
+            var t = seg.text
+            if (segments.getOrNull(i - 1) is MathSegment.Display) t = t.trimStart()
+            if (segments.getOrNull(i + 1) is MathSegment.Display) t = t.trimEnd()
+            if (t.isEmpty()) null else MathSegment.Text(t)
+        }
+    }
+}
+
 private fun mathConfig(color: Color, fontSize: TextUnit) = LatexConfig(
     fontSize = fontSize,
     theme = LatexTheme.light(color = color, backgroundColor = Color.Transparent),
@@ -165,5 +179,5 @@ private fun mathConfig(color: Color, fontSize: TextUnit) = LatexConfig(
 @Composable
 fun LatexFormula(latex: String, fontSize: TextUnit, modifier: Modifier = Modifier, color: Color = LocalContentColor.current) {
     val config = remember(color, fontSize) { mathConfig(color, fontSize) }
-    Latex(latex = latex, config = config, modifier = modifier)
+    Latex(latex = normalizeMath(latex), config = config, modifier = modifier)
 }

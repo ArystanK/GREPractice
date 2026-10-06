@@ -20,6 +20,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kz.arctan.grepractice.AppViewModel
 import kz.arctan.grepractice.Screen
+import kz.arctan.grepractice.SyncState
 import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.practice.formatDuration
 
@@ -76,6 +79,15 @@ fun HomeScreen(vm: AppViewModel) {
                 ActionCard("Import / export", "Bulk add questions as JSON or back up your bank") {
                     vm.navigate(Screen.Transfer)
                 }
+                val user by vm.cloud.user.collectAsState()
+                ActionCard(
+                    "Account & sync",
+                    user?.let {
+                        (if (it.isAnonymous) "Guest backup on" else "Syncing as ${it.email ?: "your account"}") +
+                            if (vm.syncState is SyncState.Failed) " · last sync failed" else ""
+                    }
+                        ?: "Sign in to sync questions and history across devices",
+                ) { vm.navigate(Screen.Account) }
             }
 
             TopicPerformance(vm)

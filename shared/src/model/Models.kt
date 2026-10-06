@@ -12,6 +12,8 @@ data class Question(
     val correctIndex: Int,
     val explanation: String = "",
     val createdAt: Long = 0L,
+    /** Last local edit (epoch millis); cloud sync keeps the most recently edited version. */
+    val updatedAt: Long = 0L,
 )
 
 enum class PracticeMode(val label: String) {

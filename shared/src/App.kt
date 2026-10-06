@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.jetbrains.compose.reload.DevelopmentEntryPoint
+import kz.arctan.grepractice.ui.AccountScreen
 import kz.arctan.grepractice.ui.BankScreen
 import kz.arctan.grepractice.ui.EditorScreen
 import kz.arctan.grepractice.ui.GreTheme
@@ -36,6 +37,7 @@ fun App() {
                 is Screen.Editor -> EditorScreen(vm, screen.questionId)
                 Screen.Transfer -> TransferScreen(vm)
                 Screen.History -> HistoryScreen(vm)
+                Screen.Account -> AccountScreen(vm)
             }
         }
     }

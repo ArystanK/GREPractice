@@ -17,6 +17,12 @@ dependencies:
 dependencies@android:
   - $compose.uiTooling
   - $libs.androidx.activity.compose
+  - $libs.firebase.auth
+  - $libs.firebase.firestore
+  - $libs.kotlinx.coroutines.play.services
+  - $libs.androidx.credentials
+  - $libs.androidx.credentials.play.services
+  - $libs.googleid
 
 settings:
   kotlin:
