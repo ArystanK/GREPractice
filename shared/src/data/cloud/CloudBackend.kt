@@ -56,12 +56,18 @@ interface CloudBackend {
 
     /** Writes documents in the signed-in user's collections, replacing existing ones. */
     suspend fun write(writes: List<CloudWrite>)
+
+    /** One document from the signed-in user's [collection], or null if it doesn't exist. */
+    suspend fun get(collection: String, id: String): CloudDoc?
 }
 
 expect fun createCloudBackend(): CloudBackend
 
 const val QUESTIONS_COLLECTION = "questions"
 const val RESULTS_COLLECTION = "results"
+
+/** Question figures: id = image file name, payload = base64 of the image bytes. */
+const val IMAGES_COLLECTION = "images"
 
 /** Firestore allows at most 500 writes per batch/commit. */
 const val MAX_BATCH_WRITES = 400

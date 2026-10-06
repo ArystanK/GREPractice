@@ -30,6 +30,8 @@ private data class Meta(
     val samplesVersion: Int = 1,
     val deletedQuestions: Map<String, Long> = emptyMap(),
     val deletedResults: Map<String, Long> = emptyMap(),
+    /** Per account uid: images already uploaded, so each is sent once. */
+    val uploadedImages: Map<String, Set<String>> = emptyMap(),
 )
 
 internal val json = Json {
@@ -214,6 +216,19 @@ class Repository {
         saveResults()
         saveMeta(meta.copy(deletedResults = meta.deletedResults + ids.associateWith { now }))
         localChange()
+    }
+
+    /** Every image referenced by a question or a saved result. */
+    fun referencedImages(): Set<String> =
+        (questions.flatMap { it.imageRefs() } +
+            results.flatMap { r -> r.answers.flatMap { a -> (listOf(a.questionText, a.explanation) + a.choices).flatMap(::imageRefs) } })
+            .toSet()
+
+    fun isImageUploaded(uid: String, name: String): Boolean = name in meta.uploadedImages[uid].orEmpty()
+
+    fun markImageUploaded(uid: String, name: String) {
+        if (isImageUploaded(uid, name)) return
+        saveMeta(meta.copy(uploadedImages = meta.uploadedImages + (uid to (meta.uploadedImages[uid].orEmpty() + name))))
     }
 
     fun topicStats(): List<TopicStats> =

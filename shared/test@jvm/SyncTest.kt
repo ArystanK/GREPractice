@@ -3,7 +3,9 @@ package kz.arctan.grepractice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
+import kz.arctan.grepractice.data.ImageStore
 import kz.arctan.grepractice.data.Repository
+import kz.arctan.grepractice.data.imageMarkup
 import kz.arctan.grepractice.data.SampleQuestions
 import kz.arctan.grepractice.data.cloud.CloudBackend
 import kz.arctan.grepractice.data.cloud.CloudDoc
@@ -36,6 +38,7 @@ private class FakeCloud : CloudBackend {
     override suspend fun write(writes: List<CloudWrite>) {
         writes.forEach { docs["${it.collection}/${it.doc.id}"] = it.doc }
     }
+    override suspend fun get(collection: String, id: String) = docs["$collection/$id"]
 }
 
 class SyncTest {
@@ -49,7 +52,7 @@ class SyncTest {
 
     /** Simulates opening the app on a fresh device: local files are wiped before the repository loads. */
     private fun freshDevice(): Repository {
-        File(dataLocation()).listFiles()?.forEach { it.delete() }
+        File(dataLocation()).listFiles()?.forEach { it.deleteRecursively() }
         return Repository()
     }
 
@@ -63,7 +66,7 @@ class SyncTest {
 
     @BeforeTest
     fun clean() {
-        File(dataLocation()).listFiles()?.forEach { it.delete() }
+        File(dataLocation()).listFiles()?.forEach { it.deleteRecursively() }
     }
 
     @Test
@@ -129,6 +132,23 @@ class SyncTest {
         b.sync()
         assertTrue(b.questions.none { it.id == removedId })
         assertTrue(b.duplicateGroups().isEmpty())
+    }
+
+    @Test
+    fun imagesUploadOnceAndDownloadWhereMissing() {
+        val a = Repository()
+        val bytes = ByteArray(2000) { (it % 251).toByte() }
+        val name = ImageStore.add(bytes, "png")
+        val q = a.questions.first { it.id == "sample-01" }
+        a.upsertQuestion(q.copy(text = q.text + "\n" + imageMarkup(name)))
+        assertEquals(SampleQuestions.all.size + 1, a.sync().uploaded)
+        assertTrue(cloud.docs.containsKey("images/$name"))
+        assertEquals(0, a.sync().uploaded, "an image is uploaded only once")
+
+        val b = freshDevice() // wipes local files, including images
+        assertEquals(null, ImageStore.load(name))
+        b.sync()
+        assertTrue(bytes.contentEquals(ImageStore.load(name)), "missing image is downloaded")
     }
 
     @Test

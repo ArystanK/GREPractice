@@ -196,6 +196,7 @@ fun RandomScreen(vm: AppViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                MissingFigureNote(q.text, q.choices)
                 QuestionText(q.text)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     q.choices.forEachIndexed { c, text ->

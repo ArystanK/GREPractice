@@ -1,6 +1,7 @@
 ﻿package kz.arctan.grepractice
 
 import kz.arctan.grepractice.data.SampleQuestions
+import kz.arctan.grepractice.data.needsFigure
 import kz.arctan.grepractice.ui.math.MathSegment
 import kz.arctan.grepractice.ui.math.isInsideMath
 import kz.arctan.grepractice.ui.math.mathToPlain
@@ -71,6 +72,34 @@ class MathMarkupTest {
         assertEquals("""\int_0^1x\,dx""", normalizeMath("""\int_0^1 x \, dx"""))
         assertEquals("""\cos\theta""", normalizeMath("""\cos \theta"""))
         assertEquals("""a\ b""", normalizeMath("""a\ b"""))
+    }
+
+    @Test
+    fun parsesImagesOutsideMath() {
+        assertEquals(
+            listOf(
+                MathSegment.Text("The graph of "),
+                MathSegment.Inline("f'"),
+                MathSegment.Text(" is shown."),
+                MathSegment.Image("abc123.png", "figure"),
+                MathSegment.Text(" Which is largest?"),
+            ),
+            parseMath($$"""The graph of $f'$ is shown.![figure](img:abc123.png) Which is largest?"""),
+        )
+        // Not an img: reference → plain text.
+        assertEquals(listOf(MathSegment.Text("![x](http://a.b/c.png)")), parseMath("![x](http://a.b/c.png)"))
+        assertEquals("see [figure]", mathToPlain("see ![](img:abc.png)"))
+    }
+
+    @Test
+    fun detectsQuestionsThatNeedAFigure() {
+        assertTrue(needsFigure($$"""The graph of $f'$ is shown. Which ordering is correct?""", listOf("a", "b")))
+        assertTrue(needsFigure("In the figure above, as r increases …", listOf("a")))
+        assertTrue(needsFigure("Which of the following could be the graph of a solution?", listOf("a")))
+        assertFalse(needsFigure("The line tangent to the graph of y = x at 0 is", listOf("a")))
+        assertFalse(needsFigure("In the figure above …\n![figure](img:0123456789abcdef.png)", listOf("a")))
+        // Graph answers as images in the choices also count.
+        assertFalse(needsFigure("Which of the following could be the graph of f?", listOf("![graph](img:0123456789abcdef.png)")))
     }
 
     @Test

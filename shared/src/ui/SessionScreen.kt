@@ -150,6 +150,7 @@ fun SessionScreen(vm: AppViewModel) {
                     }
                 }
 
+                MissingFigureNote(item.question.text, item.choices)
                 QuestionText(item.question.text)
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

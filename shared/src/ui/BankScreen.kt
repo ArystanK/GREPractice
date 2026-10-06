@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import kz.arctan.grepractice.AppViewModel
 import kz.arctan.grepractice.Screen
 import kz.arctan.grepractice.model.Gre
+import kz.arctan.grepractice.data.needsFigure
 import kz.arctan.grepractice.model.Question
 import kz.arctan.grepractice.ui.math.MathText
 import kz.arctan.grepractice.ui.math.mathToPlain
@@ -50,8 +51,11 @@ fun BankScreen(vm: AppViewModel) {
     val history = remember(repo.results.size) {
         repo.results.flatMap { it.answers }.groupBy { it.questionId }
     }
+    var needsFigureOnly by remember { mutableStateOf(false) }
+    val needingFigure by remember { derivedStateOf { repo.questions.count { it.needsFigure() } } }
     val shown = repo.questions
         .filter { topic == null || it.topic == topic }
+        .filter { !needsFigureOnly || it.needsFigure() }
         .filter { search.isBlank() || it.text.contains(search, ignoreCase = true) || it.topic.contains(search, ignoreCase = true) }
         .sortedWith(compareBy({ it.topic }, { it.createdAt }))
 
@@ -87,6 +91,15 @@ fun BankScreen(vm: AppViewModel) {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { SelectChip(selected = topic == null, onClick = { topic = null }, label = { Text("All (${repo.questions.size})") }) }
+                    if (needingFigure > 0 || needsFigureOnly) {
+                        item {
+                            SelectChip(
+                                selected = needsFigureOnly,
+                                onClick = { needsFigureOnly = !needsFigureOnly },
+                                label = { Text("Needs figure ($needingFigure)") },
+                            )
+                        }
+                    }
                     items(repo.topics) { t ->
                         SelectChip(
                             selected = topic == t,
@@ -121,7 +134,7 @@ fun BankScreen(vm: AppViewModel) {
                             Spacer(Modifier.weight(1f))
                             TextButton(onClick = { toDelete = q }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                         }
-                        MathText(q.text, maxLines = 3)
+                        MathText(q.text, maxLines = 3, imageMaxHeight = 120.dp)
                     }
                 }
             }
