@@ -36,6 +36,8 @@ import kz.arctan.grepractice.AppViewModel
 import kz.arctan.grepractice.data.newId
 import kz.arctan.grepractice.data.nowMillis
 import kz.arctan.grepractice.model.Gre
+import kz.arctan.grepractice.data.ImageStore
+import kz.arctan.grepractice.data.imageMarkup
 import kz.arctan.grepractice.model.Question
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
@@ -130,6 +132,26 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
         }
     }
 
+    var imageMessage by remember { mutableStateOf<String?>(null) }
+
+    /** Stores the image and inserts its markup at the cursor of the focused field. */
+    fun insertImage(result: Result<PickedImage?>) {
+        imageMessage = null
+        val picked = result.getOrElse { imageMessage = it.message ?: "Couldn't add the image."; return } ?: return
+        val name = runCatching { ImageStore.add(picked.bytes, picked.extension) }
+            .getOrElse { imageMessage = it.message ?: "Couldn't add the image."; return }
+        // In the question text a figure goes on its own line; in a choice it can stand alone.
+        val markup = imageMarkup(name, alt = if (activeField == "text" || activeField == "expl") "figure" else "graph")
+        editActive { field ->
+            val start = field.selection.min
+            val before = field.text.substring(0, start)
+            val insert = if (activeField == "text" && before.isNotEmpty() && !before.endsWith("\n")) "\n$markup\n" else markup
+            TextFieldValue(field.text.replaceRange(start, field.selection.max, insert), TextRange(start + insert.length))
+        }
+    }
+
+    val pickImage = rememberImagePicker(::insertImage)
+
     fun save() {
         if (errors.isNotEmpty()) {
             showErrors = true
@@ -203,6 +225,24 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 MathPalette(onSnippet = { sn -> editActive { it.insertSnippet(sn) } }, onWrap = { editActive { it.wrapMath() } })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = pickImage) { Text("Add image…") }
+                    if (canPasteImage) {
+                        OutlinedButton(onClick = {
+                            val pasted = runCatching { pasteImageFromClipboard() }
+                            if (pasted.getOrNull() == null && pasted.isSuccess) {
+                                imageMessage = "There's no image on the clipboard. Copy a screenshot of the figure first."
+                            } else {
+                                insertImage(pasted)
+                            }
+                        }) { Text("Paste image") }
+                    }
+                }
+                Text(
+                    imageMessage ?: "Figures are inserted into the focused field: the question, a choice (for graph answers) or the explanation.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (imageMessage != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             SectionCard(title = "Answer choices") {
@@ -254,6 +294,7 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
                 if (text.text.isBlank()) {
                     Text("The rendered question appears here as you type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
+                    MissingFigureNote(text.text, choices.map { it.text })
                     QuestionText(text.text)
                 }
                 choices.forEachIndexed { i, value ->

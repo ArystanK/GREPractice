@@ -26,7 +26,7 @@ class RepositoryTest {
 
     @BeforeTest
     fun clean() {
-        File(dataLocation()).listFiles()?.forEach { it.delete() }
+        File(dataLocation()).listFiles()?.forEach { it.deleteRecursively() }
     }
 
     @Test

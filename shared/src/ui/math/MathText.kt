@@ -23,6 +23,7 @@ import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
@@ -53,6 +54,8 @@ fun MathText(
     style: TextStyle = LocalTextStyle.current,
     color: Color = Color.Unspecified,
     maxLines: Int = Int.MAX_VALUE,
+    /** Height limit for images (`![alt](img:name)`); lists pass a small value for compact previews. */
+    imageMaxHeight: Dp = 360.dp,
 ) {
     val segments = remember(text) { prepareSegments(parseMath(text)) }
     if (segments.none { it !is MathSegment.Text }) {
@@ -65,12 +68,12 @@ fun MathText(
     val config = remember(textColor, fontSize) { mathConfig(textColor, fontSize * MATH_SCALE) }
     val displayConfig = remember(textColor, fontSize) { mathConfig(textColor, fontSize * (MATH_SCALE * 1.15f)) }
 
-    // Split into paragraphs of text + inline math, separated by display formulas.
+    // Split into paragraphs of text + inline math, separated by display formulas and images.
     val blocks = remember(segments) {
         buildList<List<MathSegment>> {
             var current = mutableListOf<MathSegment>()
             segments.forEach { seg ->
-                if (seg is MathSegment.Display) {
+                if (seg is MathSegment.Display || seg is MathSegment.Image) {
                     if (current.isNotEmpty()) add(current)
                     add(listOf(seg))
                     current = mutableListOf()
@@ -82,23 +85,23 @@ fun MathText(
         }
     }
 
-    if (blocks.size == 1 && blocks[0].first() !is MathSegment.Display) {
+    if (blocks.size == 1 && blocks[0].first() !is MathSegment.Display && blocks[0].first() !is MathSegment.Image) {
         InlineParagraph(blocks[0], config, fontSize, modifier, style, textColor, maxLines)
         return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEach { block ->
-            val first = block.first()
-            if (first is MathSegment.Display) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            when (val first = block.first()) {
+                is MathSegment.Display -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     Latex(latex = first.latex, config = displayConfig)
                 }
-            } else {
-                InlineParagraph(block, config, fontSize, Modifier, style, textColor, maxLines)
+                is MathSegment.Image -> QuestionImage(first.name, first.alt, imageMaxHeight)
+                else -> InlineParagraph(block, config, fontSize, Modifier, style, textColor, maxLines)
             }
         }
     }
 }
+
 
 @Composable
 private fun InlineParagraph(
@@ -141,7 +144,7 @@ private fun InlineParagraph(
                         appendInlineContent(id, seg.latex)
                     }
                 }
-                is MathSegment.Display -> {}
+                is MathSegment.Display, is MathSegment.Image -> {}
             }
         }
     }
@@ -156,15 +159,18 @@ private fun InlineParagraph(
     )
 }
 
+private fun MathSegment?.isBlock() = this is MathSegment.Display || this is MathSegment.Image
+
 /** Fixes minus signs and drops whitespace next to display formulas, which sit on their own line anyway. */
 private fun prepareSegments(segments: List<MathSegment>): List<MathSegment> = segments.mapIndexedNotNull { i, seg ->
     when (seg) {
         is MathSegment.Inline -> MathSegment.Inline(normalizeMath(seg.latex))
         is MathSegment.Display -> MathSegment.Display(normalizeMath(seg.latex))
+        is MathSegment.Image -> seg
         is MathSegment.Text -> {
             var t = seg.text
-            if (segments.getOrNull(i - 1) is MathSegment.Display) t = t.trimStart()
-            if (segments.getOrNull(i + 1) is MathSegment.Display) t = t.trimEnd()
+            if (segments.getOrNull(i - 1).isBlock()) t = t.trimStart()
+            if (segments.getOrNull(i + 1).isBlock()) t = t.trimEnd()
             if (t.isEmpty()) null else MathSegment.Text(t)
         }
     }

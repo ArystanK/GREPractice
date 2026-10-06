@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kz.arctan.grepractice.model.Gre
+import kz.arctan.grepractice.data.needsFigure
 import kz.arctan.grepractice.ui.math.MathText
 
 val MaxContentWidth = 860.dp
@@ -154,7 +155,12 @@ fun ChoiceRow(index: Int, text: String, state: ChoiceState, onClick: (() -> Unit
         Box(Modifier.size(30.dp).clip(CircleShape).background(badge), contentAlignment = Alignment.Center) {
             Text(Gre.letter(index), color = badgeText, fontWeight = FontWeight.Bold)
         }
-        MathText(text, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp), modifier = Modifier.weight(1f))
+        MathText(
+            text,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
+            modifier = Modifier.weight(1f),
+            imageMaxHeight = 200.dp,
+        )
         when (state) {
             ChoiceState.Correct, ChoiceState.MissedCorrect -> Text("✓", color = fb.correct, fontWeight = FontWeight.Bold)
             ChoiceState.Incorrect -> Text("✗", color = fb.incorrect, fontWeight = FontWeight.Bold)
@@ -174,6 +180,20 @@ fun choiceState(index: Int, selected: Int?, correct: Int, revealed: Boolean): Ch
 @Composable
 fun QuestionText(text: String) {
     MathText(text, style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 30.sp))
+}
+
+/** Shown above a question whose wording refers to a figure that hasn't been added to it. */
+@Composable
+fun MissingFigureNote(text: String, choices: List<String>) {
+    if (!needsFigure(text, choices)) return
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Text(
+            "This question refers to a figure that hasn't been added. You can add it in the question bank's editor.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+    }
 }
 
 @Composable

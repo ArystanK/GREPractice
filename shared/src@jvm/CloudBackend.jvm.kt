@@ -35,6 +35,9 @@ private const val FIRESTORE_URL = "https://firestore.googleapis.com/v1/$DB_PATH"
 
 private val restJson = Json { ignoreUnknownKeys = true }
 
+/** A single-document read found nothing (as opposed to the database itself missing). */
+private class DocumentNotFound : Exception()
+
 /** Signed-in session; only the refresh token and identity are persisted, ID tokens live in memory. */
 @Serializable
 private data class StoredSession(val uid: String, val email: String?, val refreshToken: String, val isAnonymous: Boolean = false)
@@ -101,20 +104,30 @@ private class RestCloudBackend : CloudBackend {
                 pageToken?.let { append("&pageToken=").append(URLEncoder.encode(it, Charsets.UTF_8)) }
             }
             val body = firestore(HttpRequest.newBuilder(URI.create(url)).GET())
-            body["documents"]?.jsonArray?.forEach { element ->
-                val doc = element.jsonObject
-                val fields = doc["fields"]?.jsonObject ?: JsonObject(emptyMap())
-                docs += CloudDoc(
-                    id = doc["name"]!!.jsonPrimitive.content.substringAfterLast('/'),
-                    payload = fields["payload"]?.jsonObject?.get("stringValue")?.jsonPrimitive?.content.orEmpty(),
-                    // Firestore's REST API encodes 64-bit integers as strings.
-                    updatedAt = fields["updatedAt"]?.jsonObject?.get("integerValue")?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
-                    deleted = fields["deleted"]?.jsonObject?.get("booleanValue")?.jsonPrimitive?.boolean ?: false,
-                )
-            }
+            body["documents"]?.jsonArray?.forEach { docs += parseDoc(it.jsonObject) }
             pageToken = body["nextPageToken"]?.jsonPrimitive?.content
         } while (pageToken != null)
         return docs
+    }
+
+    override suspend fun get(collection: String, id: String): CloudDoc? {
+        val url = "$FIRESTORE_URL/users/${uid()}/$collection/${URLEncoder.encode(id, Charsets.UTF_8)}"
+        return try {
+            parseDoc(firestore(HttpRequest.newBuilder(URI.create(url)).GET()))
+        } catch (e: DocumentNotFound) {
+            null
+        }
+    }
+
+    private fun parseDoc(doc: JsonObject): CloudDoc {
+        val fields = doc["fields"]?.jsonObject ?: JsonObject(emptyMap())
+        return CloudDoc(
+            id = doc["name"]!!.jsonPrimitive.content.substringAfterLast('/'),
+            payload = fields["payload"]?.jsonObject?.get("stringValue")?.jsonPrimitive?.content.orEmpty(),
+            // Firestore's REST API encodes 64-bit integers as strings.
+            updatedAt = fields["updatedAt"]?.jsonObject?.get("integerValue")?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+            deleted = fields["deleted"]?.jsonObject?.get("booleanValue")?.jsonPrimitive?.boolean ?: false,
+        )
     }
 
     override suspend fun write(writes: List<CloudWrite>) {
@@ -224,6 +237,7 @@ private class RestCloudBackend : CloudBackend {
         var response = send(request.copy().header("Authorization", "Bearer ${token()}"))
         if (response.statusCode() == 401) response = send(request.copy().header("Authorization", "Bearer ${token(forceRefresh = true)}"))
         val body = parse(response.body())
+        if (response.statusCode() == 404 && "database" !in body.toString()) throw DocumentNotFound()
         if (response.statusCode() !in 200..299) throw CloudException(firestoreMessage(response.statusCode(), body))
         return body
     }

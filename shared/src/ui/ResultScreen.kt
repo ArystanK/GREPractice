@@ -192,6 +192,7 @@ private fun AnswerReview(index: Int, answer: AnswerRecord) {
             Spacer(Modifier.weight(1f))
             Text("⏱ ${formatDuration(answer.timeSpentMs)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        MissingFigureNote(answer.questionText, answer.choices)
         QuestionText(answer.questionText)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             answer.choices.forEachIndexed { c, text ->

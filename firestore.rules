@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // GRE Math Practice: each signed-in user can read and write only their own synced data at
-// users/{uid}/questions/{id} and users/{uid}/results/{id}. Everything else is denied.
+// users/{uid}/questions/{id}, users/{uid}/results/{id} and users/{uid}/images/{name}
+// (question figures, base64 in payload). Everything else is denied.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid}/{collection}/{docId} {
@@ -18,9 +19,9 @@ service cloud.firestore {
           && d.deleted is bool;
       }
 
-      allow read: if isOwner() && collection in ['questions', 'results'];
-      allow create, update: if isOwner() && collection in ['questions', 'results'] && isValidRecord();
-      allow delete: if isOwner() && collection in ['questions', 'results'];
+      allow read: if isOwner() && collection in ['questions', 'results', 'images'];
+      allow create, update: if isOwner() && collection in ['questions', 'results', 'images'] && isValidRecord();
+      allow delete: if isOwner() && collection in ['questions', 'results', 'images'];
     }
   }
 }

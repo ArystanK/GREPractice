@@ -130,6 +130,20 @@ private class FirebaseCloudBackend : CloudBackend {
         }
     }
 
+    override suspend fun get(collection: String, id: String): CloudDoc? = guard {
+        val d = userCollection(collection).document(id).get().await()
+        if (!d.exists()) {
+            null
+        } else {
+            CloudDoc(
+                id = d.id,
+                payload = d.getString("payload").orEmpty(),
+                updatedAt = d.getLong("updatedAt") ?: 0L,
+                deleted = d.getBoolean("deleted") ?: false,
+            )
+        }
+    }
+
     private fun userCollection(collection: String) =
         db.collection("users").document(auth.currentUser?.uid ?: throw CloudException("Sign in to sync.")).collection(collection)
 

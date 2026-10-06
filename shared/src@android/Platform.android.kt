@@ -2,6 +2,7 @@ package kz.arctan.grepractice.data
 
 import android.content.Context
 import java.io.File
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 
@@ -24,6 +25,22 @@ actual fun writeDataFile(name: String, content: String) {
         tmp.delete()
     }
 }
+
+actual fun readDataBytes(name: String): ByteArray? =
+    File(dataDir, name).takeIf { it.exists() }?.readBytes()
+
+actual fun writeDataBytes(name: String, bytes: ByteArray) {
+    val target = File(dataDir, name).apply { parentFile?.mkdirs() }
+    val tmp = File(target.parentFile, "${target.name}.tmp")
+    tmp.writeBytes(bytes)
+    if (!tmp.renameTo(target)) {
+        target.writeBytes(bytes)
+        tmp.delete()
+    }
+}
+
+actual fun sha256Hex(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
 actual fun dataLocation(): String = dataDir.absolutePath
 

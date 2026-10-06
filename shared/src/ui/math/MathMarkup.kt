@@ -3,13 +3,18 @@ package kz.arctan.grepractice.ui.math
 /**
  * Text with embedded LaTeX, using the usual Markdown/MathJax delimiters:
  * `$…$` or `\(…\)` for inline math, `$$…$$` or `\[…\]` for display math, and `\$` for a literal dollar sign.
- * An unclosed delimiter is kept as plain text.
+ * An unclosed delimiter is kept as plain text. Images use Markdown syntax with an `img:` reference,
+ * `![alt](img:<name>)`, and are shown on their own line.
  */
 sealed interface MathSegment {
     data class Text(val text: String) : MathSegment
     data class Inline(val latex: String) : MathSegment
     data class Display(val latex: String) : MathSegment
+    data class Image(val name: String, val alt: String) : MathSegment
 }
+
+/** Matches `![alt](img:name)` at the start of the remaining input. */
+private val ImageMarkup = Regex("""!\[([^\]]*)]\(img:([^)\s]+)\)""")
 
 fun parseMath(input: String): List<MathSegment> {
     val out = mutableListOf<MathSegment>()
@@ -27,6 +32,13 @@ fun parseMath(input: String): List<MathSegment> {
             input.startsWith("\\$", i) -> {
                 text.append('$')
                 i += 2
+                continue
+            }
+            input.startsWith("![", i) && ImageMarkup.matchAt(input, i) != null -> {
+                val match = ImageMarkup.matchAt(input, i)!!
+                flushText()
+                out += MathSegment.Image(name = match.groupValues[2], alt = match.groupValues[1])
+                i = match.range.last + 1
                 continue
             }
             input.startsWith("$$", i) -> Triple("$$", "$$", true)
@@ -154,5 +166,6 @@ fun mathToPlain(input: String): String = parseMath(input).joinToString("") {
         is MathSegment.Text -> it.text
         is MathSegment.Inline -> it.latex
         is MathSegment.Display -> it.latex
+        is MathSegment.Image -> "[${it.alt.ifBlank { "figure" }}]"
     }
 }
