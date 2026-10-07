@@ -132,13 +132,65 @@ private class RestCloudBackend : CloudBackend {
 
     override suspend fun write(writes: List<CloudWrite>) {
         val uid = uid()
+        commit(writes) { "$DB_PATH/users/$uid/$it" }
+    }
+
+    override suspend fun listShared(collection: String, updatedAfter: Long): List<CloudDoc> {
+        val query = buildJsonObject {
+            putJsonObject("structuredQuery") {
+                put("from", buildJsonArray { add(buildJsonObject { put("collectionId", collection) }) })
+                putJsonObject("where") {
+                    putJsonObject("fieldFilter") {
+                        putJsonObject("field") { put("fieldPath", "updatedAt") }
+                        put("op", "GREATER_THAN")
+                        putJsonObject("value") { put("integerValue", updatedAfter.toString()) }
+                    }
+                }
+            }
+        }
+        val response = send(
+            HttpRequest.newBuilder(URI.create("$FIRESTORE_URL:runQuery?key=${FirebaseConfig.API_KEY}"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(query.toString())),
+        )
+        if (response.statusCode() !in 200..299) throw CloudException(firestoreMessage(response.statusCode(), parse(response.body())))
+        // runQuery answers with an array of {document: …} entries (plus a trailing entry without a document).
+        val results = runCatching { restJson.parseToJsonElement(response.body()).jsonArray }.getOrNull() ?: return emptyList()
+        return results.mapNotNull { (it as? JsonObject)?.get("document")?.jsonObject?.let(::parseDoc) }
+    }
+
+    override suspend fun getShared(collection: String, id: String): CloudDoc? {
+        val url = "$FIRESTORE_URL/$collection/${URLEncoder.encode(id, Charsets.UTF_8)}?key=${FirebaseConfig.API_KEY}"
+        val response = send(HttpRequest.newBuilder(URI.create(url)).GET())
+        if (response.statusCode() == 404) return null
+        val body = parse(response.body())
+        if (response.statusCode() !in 200..299) throw CloudException(firestoreMessage(response.statusCode(), body))
+        return parseDoc(body)
+    }
+
+    override suspend fun writeShared(writes: List<CloudWrite>) {
+        commit(writes) { "$DB_PATH/$it" }
+    }
+
+    override suspend fun isAdmin(): Boolean {
+        val uid = session?.uid ?: return false
+        return try {
+            firestore(HttpRequest.newBuilder(URI.create("$FIRESTORE_URL/$ADMINS_COLLECTION/$uid")).GET())
+            true
+        } catch (e: DocumentNotFound) {
+            false
+        }
+    }
+
+    /** Commits [writes]; [parent] maps a collection name to its full document path prefix. */
+    private suspend fun commit(writes: List<CloudWrite>, parent: (String) -> String) {
         writes.chunked(MAX_BATCH_WRITES).forEach { chunk ->
             val body = buildJsonObject {
                 put("writes", buildJsonArray {
                     chunk.forEach { w ->
                         add(buildJsonObject {
                             putJsonObject("update") {
-                                put("name", "$DB_PATH/users/$uid/${w.collection}/${w.doc.id}")
+                                put("name", "${parent(w.collection)}/${w.doc.id}")
                                 putJsonObject("fields") {
                                     putJsonObject("payload") { put("stringValue", w.doc.payload) }
                                     putJsonObject("updatedAt") { put("integerValue", w.doc.updatedAt.toString()) }

@@ -17,6 +17,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -106,22 +107,40 @@ private class FirebaseCloudBackend : CloudBackend {
     }
 
     override suspend fun list(collection: String): List<CloudDoc> = guard {
-        userCollection(collection).get().await().documents.map { d ->
-            CloudDoc(
-                id = d.id,
-                payload = d.getString("payload").orEmpty(),
-                updatedAt = d.getLong("updatedAt") ?: 0L,
-                deleted = d.getBoolean("deleted") ?: false,
-            )
-        }
+        userCollection(collection).get().await().documents.map { it.toCloudDoc() }
     }
 
     override suspend fun write(writes: List<CloudWrite>) = guard {
+        commit(writes) { userCollection(it) }
+    }
+
+    override suspend fun get(collection: String, id: String): CloudDoc? = guard {
+        userCollection(collection).document(id).get().await().takeIf { it.exists() }?.toCloudDoc()
+    }
+
+    override suspend fun listShared(collection: String, updatedAfter: Long): List<CloudDoc> = guard {
+        db.collection(collection).whereGreaterThan("updatedAt", updatedAfter).get().await().documents.map { it.toCloudDoc() }
+    }
+
+    override suspend fun getShared(collection: String, id: String): CloudDoc? = guard {
+        db.collection(collection).document(id).get().await().takeIf { it.exists() }?.toCloudDoc()
+    }
+
+    override suspend fun writeShared(writes: List<CloudWrite>) = guard {
+        commit(writes) { db.collection(it) }
+    }
+
+    override suspend fun isAdmin(): Boolean = guard {
+        val uid = auth.currentUser?.uid ?: return@guard false
+        db.collection(ADMINS_COLLECTION).document(uid).get().await().exists()
+    }
+
+    private suspend fun commit(writes: List<CloudWrite>, collectionRef: (String) -> com.google.firebase.firestore.CollectionReference) {
         writes.chunked(MAX_BATCH_WRITES).forEach { chunk ->
             val batch = db.batch()
             chunk.forEach { w ->
                 batch.set(
-                    userCollection(w.collection).document(w.doc.id),
+                    collectionRef(w.collection).document(w.doc.id),
                     mapOf("payload" to w.doc.payload, "updatedAt" to w.doc.updatedAt, "deleted" to w.doc.deleted),
                 )
             }
@@ -130,19 +149,12 @@ private class FirebaseCloudBackend : CloudBackend {
         }
     }
 
-    override suspend fun get(collection: String, id: String): CloudDoc? = guard {
-        val d = userCollection(collection).document(id).get().await()
-        if (!d.exists()) {
-            null
-        } else {
-            CloudDoc(
-                id = d.id,
-                payload = d.getString("payload").orEmpty(),
-                updatedAt = d.getLong("updatedAt") ?: 0L,
-                deleted = d.getBoolean("deleted") ?: false,
-            )
-        }
-    }
+    private fun DocumentSnapshot.toCloudDoc() = CloudDoc(
+        id = id,
+        payload = getString("payload").orEmpty(),
+        updatedAt = getLong("updatedAt") ?: 0L,
+        deleted = getBoolean("deleted") ?: false,
+    )
 
     private fun userCollection(collection: String) =
         db.collection("users").document(auth.currentUser?.uid ?: throw CloudException("Sign in to sync.")).collection(collection)
