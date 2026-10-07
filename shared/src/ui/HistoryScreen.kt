@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,8 +37,9 @@ import kz.arctan.grepractice.practice.formatDuration
 @Composable
 fun HistoryScreen(vm: AppViewModel) {
     val repo = vm.repo
-    var mode by remember { mutableStateOf<PracticeMode?>(null) }
-    var toDelete by remember { mutableStateOf<PracticeResult?>(null) }
+    var mode by rememberSaveable { mutableStateOf<PracticeMode?>(null) }
+    var toDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    val toDelete = toDeleteId?.let { id -> repo.results.firstOrNull { it.id == id } }
     val shown = repo.results.filter { mode == null || it.mode == mode }
 
     ScreenScaffold(title = "History", onBack = vm::back) { padding ->
@@ -52,7 +54,7 @@ fun HistoryScreen(vm: AppViewModel) {
                 }
             }
             if (shown.isEmpty()) item { EmptyState("No saved sessions yet.") }
-            items(shown, key = { it.id }) { r -> ResultRow(r, onOpen = { vm.navigate(Screen.Result(r.id)) }, onDelete = { toDelete = r }) }
+            items(shown, key = { it.id }) { r -> ResultRow(r, onOpen = { vm.navigate(Screen.Result(r.id)) }, onDelete = { toDeleteId = r.id }) }
         }
     }
 
@@ -61,8 +63,8 @@ fun HistoryScreen(vm: AppViewModel) {
             title = "Delete this result?",
             text = "${r.title} — ${formatDateTime(r.startedAt)}",
             confirmLabel = "Delete",
-            onConfirm = { repo.deleteResult(r.id); toDelete = null },
-            onDismiss = { toDelete = null },
+            onConfirm = { repo.deleteResult(r.id); toDeleteId = null },
+            onDismiss = { toDeleteId = null },
         )
     }
 }

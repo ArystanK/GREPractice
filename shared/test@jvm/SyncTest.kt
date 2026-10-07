@@ -23,10 +23,20 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** In-memory stand-in for Firestore, keyed by "collection/id". */
+/** In-memory stand-in for Firestore: [docs] are the user's own ("collection/id"), [sharedDocs] the shared bank. */
 private class FakeCloud : CloudBackend {
     val docs = linkedMapOf<String, CloudDoc>()
+    val sharedDocs = linkedMapOf<String, CloudDoc>()
+    var admin = true
     override val user: StateFlow<CloudUser?> = MutableStateFlow(CloudUser("u1", "me@example.com"))
+    override suspend fun listShared(collection: String, updatedAfter: Long) =
+        sharedDocs.filterKeys { it.startsWith("$collection/") }.values.filter { it.updatedAt > updatedAfter }
+    override suspend fun getShared(collection: String, id: String) = sharedDocs["$collection/$id"]
+    override suspend fun writeShared(writes: List<CloudWrite>) {
+        if (!admin) throw kz.arctan.grepractice.data.cloud.CloudException("Firestore denied access.")
+        writes.forEach { sharedDocs["${it.collection}/${it.doc.id}"] = it.doc }
+    }
+    override suspend fun isAdmin() = admin
     override suspend fun signIn(email: String, password: String) {}
     override suspend fun signUp(email: String, password: String) {}
     override suspend fun signInAnonymously() {}
@@ -67,6 +77,70 @@ class SyncTest {
     @BeforeTest
     fun clean() {
         File(dataLocation()).listFiles()?.forEach { it.deleteRecursively() }
+    }
+
+    private var clock = 1_000L
+    private fun tick() = ++clock
+    private fun Repository.engine() = SyncEngine(this, cloud)
+
+    @Test
+    fun publishedQuestionsReachEveryDevice() {
+        // Admin publishes their own questions (with a figure).
+        val admin = Repository()
+        val image = ImageStore.add(ByteArray(500) { it.toByte() }, "png")
+        val q = admin.questions.first { it.id == "sample-01" }
+        admin.upsertQuestion(q.copy(text = imageMarkup(image) + "\n" + q.text))
+        val ownIds = admin.ownQuestions().map { it.id }.toSet()
+        runBlocking { admin.engine().publish(admin.ownQuestions(), ::tick) }
+        assertEquals(ownIds, admin.sharedIds)
+        assertTrue(admin.ownQuestions().isEmpty(), "published questions leave the admin's own set")
+        assertEquals(ownIds.size, admin.questions.size)
+        assertTrue(cloud.sharedDocs.containsKey("bankImages/$image"))
+
+        // Another user on a fresh device, not signed in: gets the shared bank and its figure.
+        val other = freshDevice()
+        val changed = runBlocking { other.engine().syncShared() }
+        assertEquals(ownIds.size, changed)
+        assertTrue(other.isShared("sample-01"))
+        assertTrue(ImageStore.load(image) != null, "shared figure downloaded")
+        // Their seeded sample copies have the same ids, so the shared versions win: no doubles.
+        assertEquals(ownIds.size, other.questions.size)
+
+        // Later changes arrive incrementally; deletions too.
+        runBlocking { admin.engine().unpublish(setOf("sample-02"), ::tick) }
+        assertEquals(1, runBlocking { other.engine().syncShared() })
+        assertTrue(other.questions.none { it.id == "sample-02" && other.isShared(it.id) })
+        assertEquals(0, runBlocking { other.engine().syncShared() }, "nothing new")
+    }
+
+    @Test
+    fun nonAdminCannotWriteAndSharedIdsAreNotImportedAsOwn() {
+        val admin = Repository()
+        runBlocking { admin.engine().publish(admin.ownQuestions().take(3), ::tick) }
+        val sharedId = admin.sharedIds.first()
+
+        val user = freshDevice()
+        runBlocking { user.engine().syncShared() }
+        cloud.admin = false
+        assertTrue(runCatching { runBlocking { user.engine().publish(user.ownQuestions().take(1), ::tick) } }.isFailure)
+
+        val summary = user.importQuestionsJson(
+            """[{"id": "$sharedId", "topic": "X", "text": "replaced?", "choices": ["a", "b"], "answer": "A"}]""",
+        )
+        assertEquals(0, summary.imported)
+        assertEquals(listOf(sharedId), summary.shared.map { it.id })
+        assertTrue(user.questions.none { it.text == "replaced?" })
+    }
+
+    @Test
+    fun duplicateRemovalNeverTouchesSharedQuestions() {
+        val admin = Repository()
+        runBlocking { admin.engine().publish(admin.ownQuestions().filter { it.id == "sample-01" }, ::tick) }
+        val sharedQ = admin.questions.first { it.id == "sample-01" }
+        admin.upsertQuestion(sharedQ.copy(id = "my-copy"))
+        assertEquals(listOf("sample-01", "my-copy"), admin.duplicateGroups().single().map { it.id })
+        assertEquals(1, admin.removeDuplicates())
+        assertTrue(admin.isShared("sample-01") && admin.questions.none { it.id == "my-copy" })
     }
 
     @Test

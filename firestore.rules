@@ -1,22 +1,52 @@
 rules_version = '2';
 
-// GRE Math Practice: each signed-in user can read and write only their own synced data at
-// users/{uid}/questions/{id}, users/{uid}/results/{id} and users/{uid}/images/{name}
-// (question figures, base64 in payload). Everything else is denied.
+// GRE Math Practice.
+// - bank/{id}, bankImages/{name}: the common question bank and its figures. Anyone can read;
+//   only admins can write.
+// - admins/{uid}: an empty document marks a user as an admin. Create it by hand in the Firebase
+//   console; nobody can write it from the app.
+// - users/{uid}/questions|results|images/{id}: each signed-in user's own data, private to them.
+// Everything else is denied.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Synced records: a JSON payload (empty for deletions), an edit timestamp and a tombstone flag.
+    function isValidRecord() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['payload', 'updatedAt', 'deleted'])
+        && d.payload is string && d.payload.size() < 900000
+        && d.updatedAt is int
+        && d.deleted is bool;
+    }
+
+    match /bank/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidRecord();
+      allow delete: if isAdmin();
+    }
+
+    match /bankImages/{name} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidRecord();
+      allow delete: if isAdmin();
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
     match /users/{uid}/{collection}/{docId} {
       function isOwner() {
-        return request.auth != null && request.auth.uid == uid;
-      }
-
-      // Synced records: a JSON payload (empty for deletions), an edit timestamp and a tombstone flag.
-      function isValidRecord() {
-        let d = request.resource.data;
-        return d.keys().hasOnly(['payload', 'updatedAt', 'deleted'])
-          && d.payload is string && d.payload.size() < 900000
-          && d.updatedAt is int
-          && d.deleted is bool;
+        return signedIn() && request.auth.uid == uid;
       }
 
       allow read: if isOwner() && collection in ['questions', 'results', 'images'];

@@ -71,14 +71,26 @@ The app keeps working offline: local files remain the primary copy. Changes uplo
 - **Backend:** Firebase project `grepractice-519d9`. It uses Cloud Firestore (Standard edition, `europe-central2`) and Firebase Authentication (Google, email/password, anonymous).
 - **Android:** the official Firebase Auth and Firestore SDKs. Firebase is initialized in code from the values in `FirebaseSecrets.kt`, because this build doesn't run the Google Services Gradle plugin. Keep those values in sync with `androidApp/google-services.json`.
 - **Desktop:** there's no official Firebase client SDK for desktop JVM, so it uses the official Firebase Auth and Firestore REST APIs instead ([CloudBackend.jvm.kt](shared/src@jvm/CloudBackend.jvm.kt)). The sign-in refresh token is stored in `~/.grepractice/session.json`.
-- **Data layout:** `users/{uid}/questions/{id}` and `users/{uid}/results/{id}`. Each document has three fields:
-  - `payload`: the record as JSON
+- **Data layout:**
+  - `bank/{id}` and `bankImages/{name}`: the shared question bank and its figures (see [Shared question bank](#shared-question-bank)).
+  - `users/{uid}/questions/{id}`, `users/{uid}/results/{id}` and `users/{uid}/images/{name}`: each user's own questions, history and figures.
+
+  Every document has three fields:
+  - `payload`: the record as JSON (base64 for images)
   - `updatedAt`: when it was last edited (epoch millis)
-  - `deleted`: a tombstone flag, so deletions reach your other devices
+  - `deleted`: a tombstone flag, so deletions reach other devices
 - **Conflicts:**
   - Questions: the most recent edit wins.
   - Results: never change after they're saved, so they're merged, and a deletion on either side wins.
-- **Security:** [firestore.rules](firestore.rules) lets each user read and write only their own documents, and checks each document's shape. To deploy the rules, either paste them into the Firebase console (Firestore → Rules), or run `firebase deploy --only firestore:rules` with the Firebase CLI. This project includes `firebase.json` and `.firebaserc` for the CLI.
+- **Security:** [firestore.rules](firestore.rules) makes the shared bank readable by anyone and writable only by admins. Each user can read and write only their own `users/{uid}` documents, and every document's shape is checked. To deploy the rules, either paste them into the Firebase console (Firestore → Rules), or run `firebase deploy --only firestore:rules` with the Firebase CLI. This project includes `firebase.json` and `.firebaserc` for the CLI.
+
+### Shared question bank
+
+Every user sees the common **shared bank**, even without signing in, plus any questions they add themselves. Their own questions stay private and sync only to their own devices. When a shared question and one of a user's own questions have the same ID, the shared one is shown.
+
+- **Updates:** the app downloads only shared questions changed since its last fetch: at startup, after signing in, and on **Sync now**. It keeps a copy in `bank.json` so it works offline.
+- **Admins** are the only users who can change the shared bank. In the question bank, an admin gets **Publish my questions to the shared bank**, which moves their own questions (and their figures) into the bank. An admin's edits and deletions of shared questions apply for everyone. Imported JSON whose IDs belong to the bank updates the bank when an admin imports it, and is skipped for anyone else.
+- **Making someone an admin:** in the Firebase console, go to Firestore → Data, start a collection named `admins`, and add a document whose ID is the user's UID (Authentication → Users). The document doesn't need any fields. Nobody can create these documents from the app.
 
 ### Data
 

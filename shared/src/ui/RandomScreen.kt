@@ -23,6 +23,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,38 +48,53 @@ import kz.arctan.grepractice.model.AnswerRecord
 import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.PracticeResult
-import kz.arctan.grepractice.model.Question
+import kz.arctan.grepractice.data.Repository
+import kz.arctan.grepractice.practice.Pick
+import kz.arctan.grepractice.practice.PickReason
+import kz.arctan.grepractice.practice.QuestionPicker
 import kz.arctan.grepractice.practice.formatDuration
 
 /** Recently shown question ids are skipped so the same question doesn't come up twice in a row. */
 private const val RECENT_WINDOW = 5
+
+/** Saves the shown question by id (with why it was picked); it's dropped if the question was deleted meanwhile. */
+private fun pickSaver(repo: Repository) = Saver<Pick?, ArrayList<Any>>(
+    save = { p -> p?.let { arrayListOf(it.question.id, it.reason.name, it.slowTopicAvgMs ?: -1L) } },
+    restore = { v ->
+        repo.questions.firstOrNull { it.id == v[0] }
+            ?.let { Pick(it, PickReason.valueOf(v[1] as String), (v[2] as Long).takeIf { ms -> ms >= 0 }) }
+    },
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RandomScreen(vm: AppViewModel) {
     val repo = vm.repo
     val fb = LocalFeedbackColors.current
-    var topic by remember { mutableStateOf<String?>(null) }
-    val pool = repo.questions.filter { topic == null || it.topic == topic }
+    var topic by rememberSaveable { mutableStateOf<String?>(null) }
+    fun poolFor(t: String?) = repo.questions.filter { t == null || it.topic == t }
+    val pool = poolFor(topic)
 
-    val recent = remember { ArrayDeque<String>() }
-    fun draw(): Question? {
-        if (pool.isEmpty()) return null
-        val avoid = recent.takeLast(minOf(RECENT_WINDOW, pool.size - 1)).toSet()
-        return pool.filter { it.id !in avoid }.random().also { recent.addLast(it.id) }
+    val recent = rememberSaveable(saver = listSaver(save = { ArrayList(it) }, restore = { ArrayDeque(it) })) { ArrayDeque<String>() }
+    fun draw(): Pick? {
+        val candidates = poolFor(topic)
+        if (candidates.isEmpty()) return null
+        val avoid = recent.takeLast(minOf(RECENT_WINDOW, candidates.size - 1)).toSet()
+        return QuestionPicker(repo.results).pick(candidates.filter { it.id !in avoid })?.also { recent.addLast(it.question.id) }
     }
 
-    var question by remember { mutableStateOf<Question?>(null) }
-    var selected by remember { mutableStateOf<Int?>(null) }
-    var checked by remember { mutableStateOf(false) }
-    var shownAt by remember { mutableLongStateOf(nowMillis()) }
+    var pick by rememberSaveable(stateSaver = pickSaver(repo)) { mutableStateOf<Pick?>(null) }
+    val question = pick?.question
+    var selected by rememberSaveable { mutableStateOf<Int?>(null) }
+    var checked by rememberSaveable { mutableStateOf(false) }
+    var shownAt by rememberSaveable { mutableLongStateOf(nowMillis()) }
     var now by remember { mutableLongStateOf(nowMillis()) }
-    var stoppedMs by remember { mutableLongStateOf(0L) }
-    var attempted by remember { mutableIntStateOf(0) }
-    var correct by remember { mutableIntStateOf(0) }
+    var stoppedMs by rememberSaveable { mutableLongStateOf(0L) }
+    var attempted by rememberSaveable { mutableIntStateOf(0) }
+    var correct by rememberSaveable { mutableIntStateOf(0) }
 
     fun next() {
-        question = draw()
+        pick = draw()
         selected = null
         checked = false
         shownAt = nowMillis()
@@ -114,7 +132,15 @@ fun RandomScreen(vm: AppViewModel) {
         )
     }
 
-    LaunchedEffect(topic) { next() }
+    fun selectTopic(t: String?) {
+        if (t == topic) return
+        topic = t
+        next()
+    }
+
+    // Draw only when nothing is shown: after a configuration change (e.g. rotation) the restored
+    // question stays. Keyed on the pool so questions arriving later (first sync) get drawn too.
+    LaunchedEffect(pool.isEmpty()) { if (pick == null) next() }
     LaunchedEffect(Unit) {
         while (true) {
             now = nowMillis()
@@ -175,9 +201,9 @@ fun RandomScreen(vm: AppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SelectChip(selected = topic == null, onClick = { topic = null }, label = { Text("Any topic") })
+                    SelectChip(selected = topic == null, onClick = { selectTopic(null) }, label = { Text("Any topic") })
                     repo.topics.forEach { t ->
-                        SelectChip(selected = topic == t, onClick = { topic = t }, label = { Text(t) })
+                        SelectChip(selected = topic == t, onClick = { selectTopic(t) }, label = { Text(t) })
                     }
                 }
 
@@ -189,7 +215,13 @@ fun RandomScreen(vm: AppViewModel) {
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TopicPill(q.topic)
-                    Spacer(Modifier.weight(1f))
+                    // Why this question came up, so the weighting is visible.
+                    Text(
+                        pick?.let { p -> p.reason.label + (p.slowTopicAvgMs?.let { " · slow topic, ${formatDuration(it)} avg" } ?: "") }.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
                     Text(
                         "GRE pace: ${formatDuration(Gre.PACE_MS_PER_QUESTION)}",
                         style = MaterialTheme.typography.bodySmall,

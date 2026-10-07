@@ -23,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,22 +51,22 @@ fun SetupScreen(vm: AppViewModel, setup: Screen.Setup) {
     val topics = repo.topics
     val exam = setup.exam
 
-    var selectedTopics by remember {
+    var selectedTopics by rememberSaveable(stateSaver = Saver<Set<String>, ArrayList<String>>({ ArrayList(it) }, { it.toSet() })) {
         mutableStateOf(if (exam || setup.topic == null) topics.toSet() else setOf(setup.topic))
     }
     // Random exams leave the full practice tests' questions out by default, so the tests stay unseen.
     val hasPracticeTests = exam && repo.questions.any { isPracticeTestQuestion(it.id) }
-    var includePracticeTests by remember { mutableStateOf(false) }
+    var includePracticeTests by rememberSaveable { mutableStateOf(false) }
     val pool = repo.questions.filter {
         it.topic in selectedTopics && (!hasPracticeTests || includePracticeTests || !isPracticeTestQuestion(it.id))
     }
-    var count by remember { mutableIntStateOf(if (exam) Gre.EXAM_QUESTIONS else 10) }
+    var count by rememberSaveable { mutableIntStateOf(if (exam) Gre.EXAM_QUESTIONS else 10) }
     val effectiveCount = count.coerceIn(0, pool.size)
-    var timing by remember { mutableStateOf(Timing.GrePace) }
-    var customMinutes by remember { mutableStateOf("30") }
-    var instantFeedback by remember { mutableStateOf(!exam) }
-    var shuffleChoices by remember { mutableStateOf(false) }
-    var preferWeak by remember { mutableStateOf(!exam) }
+    var timing by rememberSaveable { mutableStateOf(Timing.GrePace) }
+    var customMinutes by rememberSaveable { mutableStateOf("30") }
+    var instantFeedback by rememberSaveable { mutableStateOf(!exam) }
+    var shuffleChoices by rememberSaveable { mutableStateOf(false) }
+    var preferWeak by rememberSaveable { mutableStateOf(!exam) }
 
     val timeLimitMs: Long? = when (timing) {
         Timing.GrePace -> effectiveCount * Gre.PACE_MS_PER_QUESTION

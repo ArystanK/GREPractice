@@ -24,6 +24,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,6 +84,11 @@ private val Snippets: List<Snippet> = listOf(
     "alpha", "beta", "gamma", "delta", "varepsilon", "theta", "lambda", "mu", "sigma", "varphi", "omega", "Delta", "Sigma", "Omega",
 )
 
+private val TextFieldListSaver = listSaver<SnapshotStateList<TextFieldValue>, Any>(
+    save = { list -> list.mapNotNull { with(TextFieldValue.Saver) { save(it) } } },
+    restore = { saved -> saved.mapNotNull { TextFieldValue.Saver.restore(it) }.toMutableStateList() },
+)
+
 private fun TextFieldValue.insertSnippet(snippet: Snippet): TextFieldValue {
     val start = selection.min
     // Outside math, wrap the snippet in $…$ so it renders.
@@ -101,19 +110,20 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
     val repo = vm.repo
     val existing = remember(questionId) { repo.questions.firstOrNull { it.id == questionId } }
 
-    var topic by remember { mutableStateOf(TextFieldValue(existing?.topic ?: "")) }
-    var text by remember { mutableStateOf(TextFieldValue(existing?.text ?: "")) }
-    val choices = remember {
+    // Saveable, so a rotation or the system reclaiming the activity during image picking keeps the draft.
+    var topic by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(existing?.topic ?: "")) }
+    var text by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(existing?.text ?: "")) }
+    val choices = rememberSaveable(saver = TextFieldListSaver) {
         mutableStateListOf<TextFieldValue>().apply {
             (existing?.choices ?: List(5) { "" }).forEach { add(TextFieldValue(it)) }
         }
     }
-    var correct by remember { mutableIntStateOf(existing?.correctIndex ?: -1) }
-    var explanation by remember { mutableStateOf(TextFieldValue(existing?.explanation ?: "")) }
+    var correct by rememberSaveable { mutableIntStateOf(existing?.correctIndex ?: -1) }
+    var explanation by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(existing?.explanation ?: "")) }
     /** Which field the LaTeX palette edits: "text", "expl", or a choice index as a string. */
-    var activeField by remember { mutableStateOf("text") }
-    var showErrors by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
+    var activeField by rememberSaveable { mutableStateOf("text") }
+    var showErrors by rememberSaveable { mutableStateOf(false) }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
 
     val filledChoices = choices.count { it.text.isNotBlank() }
     val errors = buildList {
@@ -132,7 +142,7 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
         }
     }
 
-    var imageMessage by remember { mutableStateOf<String?>(null) }
+    var imageMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     /** Stores the image and inserts its markup at the cursor of the focused field. */
     fun insertImage(result: Result<PickedImage?>) {
@@ -157,7 +167,7 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
             showErrors = true
             return
         }
-        repo.upsertQuestion(
+        vm.saveQuestion(
             Question(
                 id = existing?.id ?: newId(),
                 topic = topic.text.trim(),
@@ -171,12 +181,19 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
         vm.back()
     }
 
+    val isShared = existing != null && repo.isShared(existing.id)
+    val readOnly = isShared && !vm.isAdmin
+
     ScreenScaffold(
-        title = if (existing == null) "Add question" else "Edit question",
+        title = when {
+            existing == null -> "Add question"
+            readOnly -> "Shared question"
+            else -> "Edit question"
+        },
         onBack = vm::back,
         bottomBar = {
             CenteredBar {
-                if (existing != null) {
+                if (existing != null && !readOnly) {
                     TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 }
                 Text(
@@ -184,8 +201,8 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                OutlinedButton(onClick = vm::back) { Text("Cancel") }
-                Button(onClick = ::save) { Text("Save") }
+                OutlinedButton(onClick = vm::back) { Text(if (readOnly) "Close" else "Cancel") }
+                if (!readOnly) Button(onClick = ::save) { Text(if (isShared) "Save for everyone" else "Save") }
             }
         },
     ) { padding ->
@@ -193,6 +210,18 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
             Modifier.verticalScroll(rememberScrollState()).padding(padding),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            if (isShared) {
+                SectionCard {
+                    Text(
+                        if (readOnly) {
+                            "This question is in the shared bank, so it can't be changed here. Only admins can edit shared questions."
+                        } else {
+                            "This question is in the shared bank. Saving or deleting it changes it for every user."
+                        },
+                        color = if (readOnly) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             SectionCard(title = "Topic") {
                 OutlinedTextField(
                     value = topic,
@@ -319,7 +348,7 @@ fun EditorScreen(vm: AppViewModel, questionId: String?) {
             text = "This removes it from the bank. Past results that include it are kept.",
             confirmLabel = "Delete",
             onConfirm = {
-                repo.deleteQuestion(existing.id)
+                vm.deleteQuestion(existing.id)
                 confirmDelete = false
                 vm.back()
             },

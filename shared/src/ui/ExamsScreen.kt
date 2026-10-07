@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,7 +36,8 @@ import kz.arctan.grepractice.practice.formatDuration
 @Composable
 fun ExamsScreen(vm: AppViewModel) {
     val tests = findPracticeTests(vm.repo.questions)
-    var confirmStart by remember { mutableStateOf<PracticeTest?>(null) }
+    var confirmStartNumber by rememberSaveable { mutableStateOf<Int?>(null) }
+    val confirmStart = tests.firstOrNull { it.number == confirmStartNumber }
 
     ScreenScaffold(title = "Simulated exam", onBack = vm::back) { padding ->
         Column(
@@ -61,7 +63,7 @@ fun ExamsScreen(vm: AppViewModel) {
                 PracticeTestCard(
                     vm = vm,
                     test = test,
-                    onStartTimed = { confirmStart = test },
+                    onStartTimed = { confirmStartNumber = test.number },
                     onStartUntimed = { vm.startSession(test.config(timed = false)) },
                 )
             }
@@ -84,10 +86,10 @@ fun ExamsScreen(vm: AppViewModel) {
                 "and the test is submitted automatically when time runs out.",
             confirmLabel = "Start",
             onConfirm = {
-                confirmStart = null
+                confirmStartNumber = null
                 vm.startSession(test.config(timed = true))
             },
-            onDismiss = { confirmStart = null },
+            onDismiss = { confirmStartNumber = null },
         )
     }
 }

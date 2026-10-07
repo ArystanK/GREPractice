@@ -21,6 +21,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,23 +39,31 @@ import kz.arctan.grepractice.ui.math.mathToPlain
 @Composable
 fun BankScreen(vm: AppViewModel) {
     val repo = vm.repo
-    var search by remember { mutableStateOf("") }
-    var topic by remember { mutableStateOf<String?>(null) }
-    var toDelete by remember { mutableStateOf<Question?>(null) }
-    var confirmDedupe by remember { mutableStateOf(false) }
-    var dedupeMessage by remember { mutableStateOf<String?>(null) }
+    var search by rememberSaveable { mutableStateOf("") }
+    var topic by rememberSaveable { mutableStateOf<String?>(null) }
+    var toDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    val toDelete = toDeleteId?.let { id -> repo.questions.firstOrNull { it.id == id } }
+    var confirmDedupe by rememberSaveable { mutableStateOf(false) }
+    var dedupeMessage by rememberSaveable { mutableStateOf<String?>(null) }
     // Recomputed whenever the question list changes, including changes pulled in by sync.
     val duplicateGroups by remember { derivedStateOf { repo.duplicateGroups() } }
-    val duplicateCount = duplicateGroups.sumOf { it.size - 1 }
+    // Only the user's own copies can be removed; shared-bank questions always stay.
+    val duplicateCount = duplicateGroups.sumOf { g -> g.drop(1).count { !repo.isShared(it.id) } }
+    /** null = all, true = shared bank, false = the user's own. */
+    var origin by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    val sharedCount = repo.sharedIds.size
+    val ownCount = repo.questions.size - sharedCount
+    var confirmPublish by rememberSaveable { mutableStateOf(false) }
 
     // Latest-attempt stats per question id.
     val history = remember(repo.results.size) {
         repo.results.flatMap { it.answers }.groupBy { it.questionId }
     }
-    var needsFigureOnly by remember { mutableStateOf(false) }
+    var needsFigureOnly by rememberSaveable { mutableStateOf(false) }
     val needingFigure by remember { derivedStateOf { repo.questions.count { it.needsFigure() } } }
     val shown = repo.questions
         .filter { topic == null || it.topic == topic }
+        .filter { origin == null || repo.isShared(it.id) == origin }
         .filter { !needsFigureOnly || it.needsFigure() }
         .filter { search.isBlank() || it.text.contains(search, ignoreCase = true) || it.topic.contains(search, ignoreCase = true) }
         .sortedWith(compareBy({ it.topic }, { it.createdAt }))
@@ -65,6 +74,23 @@ fun BankScreen(vm: AppViewModel) {
         actions = { TextButton(onClick = { vm.navigate(Screen.Editor(null)) }) { Text("+ Add question") } },
     ) { padding ->
         LazyColumn(contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (vm.isAdmin || vm.bankMessage != null) {
+                item {
+                    SectionCard(title = if (vm.isAdmin) "Shared bank (admin)" else null) {
+                        if (vm.isAdmin) {
+                            Text(
+                                "Edits you make to shared questions are published to everyone. " +
+                                    if (ownCount > 0) "$ownCount of your own questions aren't in the shared bank yet." else "All your questions are in the shared bank.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (ownCount > 0) Button(onClick = { confirmPublish = true }) { Text("Publish my questions to the shared bank") }
+                        }
+                        vm.bankMessage?.let { (ok, text) ->
+                            Text(text, color = if (ok) LocalFeedbackColors.current.correct else MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
             if (duplicateCount > 0 || dedupeMessage != null) {
                 item {
                     SectionCard {
@@ -91,6 +117,10 @@ fun BankScreen(vm: AppViewModel) {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { SelectChip(selected = topic == null, onClick = { topic = null }, label = { Text("All (${repo.questions.size})") }) }
+                    if (sharedCount > 0) {
+                        item { SelectChip(selected = origin == true, onClick = { origin = if (origin == true) null else true }, label = { Text("Shared ($sharedCount)") }) }
+                        item { SelectChip(selected = origin == false, onClick = { origin = if (origin == false) null else false }, label = { Text("Mine ($ownCount)") }) }
+                    }
                     if (needingFigure > 0 || needsFigureOnly) {
                         item {
                             SelectChip(
@@ -119,6 +149,10 @@ fun BankScreen(vm: AppViewModel) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TopicPill(q.topic)
+                            val isShared = repo.isShared(q.id)
+                            if (isShared) {
+                                Text("Shared", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                            }
                             Text(
                                 "Answer ${Gre.letter(q.correctIndex)}",
                                 style = MaterialTheme.typography.labelLarge,
@@ -132,7 +166,9 @@ fun BankScreen(vm: AppViewModel) {
                                 )
                             }
                             Spacer(Modifier.weight(1f))
-                            TextButton(onClick = { toDelete = q }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                            if (!isShared || vm.isAdmin) {
+                                TextButton(onClick = { toDeleteId = q.id }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                            }
                         }
                         MathText(q.text, maxLines = 3, imageMaxHeight = 120.dp)
                     }
@@ -143,11 +179,25 @@ fun BankScreen(vm: AppViewModel) {
 
     toDelete?.let { q ->
         ConfirmDialog(
-            title = "Delete question?",
-            text = mathToPlain(q.text).take(140),
+            title = if (repo.isShared(q.id)) "Delete from the shared bank?" else "Delete question?",
+            text = (if (repo.isShared(q.id)) "This removes it for every user. " else "") + mathToPlain(q.text).take(140),
             confirmLabel = "Delete",
-            onConfirm = { repo.deleteQuestion(q.id); toDelete = null },
-            onDismiss = { toDelete = null },
+            onConfirm = { vm.deleteQuestion(q.id); toDeleteId = null },
+            onDismiss = { toDeleteId = null },
+        )
+    }
+
+    if (confirmPublish) {
+        ConfirmDialog(
+            title = "Publish $ownCount question${if (ownCount == 1) "" else "s"}?",
+            text = "They move from your own questions into the shared bank, with their figures, and every user of the app " +
+                "will see them. You can still edit or delete them as an admin.",
+            confirmLabel = "Publish",
+            onConfirm = {
+                confirmPublish = false
+                vm.publishOwn(repo.ownQuestions().map { it.id }.toSet())
+            },
+            onDismiss = { confirmPublish = false },
         )
     }
 

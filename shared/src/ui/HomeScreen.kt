@@ -70,7 +70,7 @@ fun HomeScreen(vm: AppViewModel) {
                 ActionCard("Practice by topic", "Pick topics, question count and timing") {
                     vm.navigate(Screen.Setup(exam = false))
                 }
-                ActionCard("Random question", "One question at a time with a stopwatch and instant check") {
+                ActionCard("Random question", "One question at a time with a stopwatch and instant check, favouring missed, unanswered and slow-topic questions") {
                     vm.navigate(Screen.Random)
                 }
             }

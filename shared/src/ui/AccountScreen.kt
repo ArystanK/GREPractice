@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,10 +60,11 @@ fun AccountScreen(vm: AppViewModel) {
 @Composable
 private fun SignInCard(vm: AppViewModel, guest: Boolean) {
     val scope = rememberCoroutineScope()
-    var email by remember { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
+    // Not saveable: the password stays out of saved instance state, and an in-flight sign-in is cancelled with the screen.
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var message by rememberSaveable { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     fun run(action: suspend () -> Unit, success: String? = null) {
         if (busy) return
@@ -151,9 +153,16 @@ private fun SignInCard(vm: AppViewModel, guest: Boolean) {
 private fun SyncCard(vm: AppViewModel, account: String, guest: Boolean) {
     val scope = rememberCoroutineScope()
     val fb = LocalFeedbackColors.current
-    var confirmGuestSignOut by remember { mutableStateOf(false) }
+    var confirmGuestSignOut by rememberSaveable { mutableStateOf(false) }
     SectionCard(title = "Signed in") {
         Text(account, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (vm.isAdmin) {
+            Text(
+                "Admin: you can publish and edit questions in the shared bank.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         Text(
             "Changes sync automatically a few seconds after you make them, and whenever the app starts.",
             style = MaterialTheme.typography.bodySmall,

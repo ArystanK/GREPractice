@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +42,7 @@ private enum class ReviewFilter(val label: String) { All("All"), Incorrect("Inco
 @Composable
 fun ResultScreen(vm: AppViewModel, resultId: String) {
     val result = vm.repo.results.firstOrNull { it.id == resultId }
-    var filter by remember { mutableStateOf(ReviewFilter.All) }
+    var filter by rememberSaveable { mutableStateOf(ReviewFilter.All) }
 
     ScreenScaffold(
         title = "Results",
@@ -78,8 +79,10 @@ fun ResultScreen(vm: AppViewModel, resultId: String) {
                 }
             }
             if (shown.isEmpty()) item { EmptyState("Nothing here.") }
+            // Show questions as they are now, so fixes made since the session (e.g. restored math) appear.
+            val current = vm.repo.questions.associateBy { it.id }
             itemsIndexed(shown, key = { _, v -> v.index }) { _, (index, answer) ->
-                AnswerReview(index, answer)
+                AnswerReview(index, answer.refreshedFrom(current[answer.questionId]))
             }
         }
     }

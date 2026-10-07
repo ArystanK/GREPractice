@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -44,9 +45,9 @@ private val ImportExample = $$"""
 fun TransferScreen(vm: AppViewModel) {
     val repo = vm.repo
     val clipboard = LocalClipboardManager.current
-    var importText by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
-    var confirmClear by remember { mutableStateOf(false) }
+    var importText by rememberSaveable { mutableStateOf("") }
+    var message by rememberSaveable { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
 
     ScreenScaffold(title = "Import / export", onBack = vm::back) { padding ->
         Column(
@@ -56,6 +57,9 @@ fun TransferScreen(vm: AppViewModel) {
             message?.let { (ok, text) ->
                 SectionCard {
                     Text(text, color = if (ok) LocalFeedbackColors.current.correct else MaterialTheme.colorScheme.error)
+                    vm.bankMessage?.let { (bankOk, bankText) ->
+                        Text(bankText, color = if (bankOk) LocalFeedbackColors.current.correct else MaterialTheme.colorScheme.error)
+                    }
                 }
             }
 
@@ -81,13 +85,10 @@ fun TransferScreen(vm: AppViewModel) {
                     Button(
                         enabled = importText.isNotBlank(),
                         onClick = {
-                            message = runCatching { repo.importQuestionsJson(importText) }.fold(
-                                onSuccess = { r ->
+                            message = runCatching { vm.importJson(importText) }.fold(
+                                onSuccess = { text ->
                                     importText = ""
-                                    true to buildString {
-                                        append("Imported ${r.imported} question${if (r.imported == 1) "" else "s"}.")
-                                        if (r.skippedDuplicates > 0) append(" Skipped ${r.skippedDuplicates} already in your bank.")
-                                    }
+                                    true to text
                                 },
                                 onFailure = { false to "Import failed: ${it.message}" },
                             )

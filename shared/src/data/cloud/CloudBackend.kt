@@ -59,6 +59,20 @@ interface CloudBackend {
 
     /** One document from the signed-in user's [collection], or null if it doesn't exist. */
     suspend fun get(collection: String, id: String): CloudDoc?
+
+    // ---- Shared bank: top-level collections everyone can read; only admins can write ----
+
+    /** Documents of a shared [collection] changed after [updatedAfter] (epoch millis). Works signed out. */
+    suspend fun listShared(collection: String, updatedAfter: Long): List<CloudDoc>
+
+    /** One shared document, or null. Works signed out. */
+    suspend fun getShared(collection: String, id: String): CloudDoc?
+
+    /** Writes shared documents; Firestore rules allow this only for admins. */
+    suspend fun writeShared(writes: List<CloudWrite>)
+
+    /** Whether the signed-in user is an admin (has an `admins/{uid}` document). */
+    suspend fun isAdmin(): Boolean
 }
 
 expect fun createCloudBackend(): CloudBackend
@@ -68,6 +82,15 @@ const val RESULTS_COLLECTION = "results"
 
 /** Question figures: id = image file name, payload = base64 of the image bytes. */
 const val IMAGES_COLLECTION = "images"
+
+/** The common question bank (top-level, public read, admin write), same document shape as private questions. */
+const val BANK_COLLECTION = "bank"
+
+/** Figures referenced by shared questions. */
+const val BANK_IMAGES_COLLECTION = "bankImages"
+
+/** `admins/{uid}` marks an admin; created by hand in the Firebase console. */
+const val ADMINS_COLLECTION = "admins"
 
 /** Firestore allows at most 500 writes per batch/commit. */
 const val MAX_BATCH_WRITES = 400

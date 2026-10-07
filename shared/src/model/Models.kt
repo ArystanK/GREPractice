@@ -39,6 +39,25 @@ data class AnswerRecord(
 ) {
     val isCorrect: Boolean get() = selectedIndex == correctIndex
     val isAnswered: Boolean get() = selectedIndex != null
+
+    /**
+     * This record shown with [current], the question's latest version, so fixes made after the
+     * session (restored math, added figures) appear when reviewing it. Text and explanation always
+     * update. Choices update only when the recorded indices still point at the same answers: either
+     * they're the same set (possibly shuffled, so the recorded order is kept), or they changed in
+     * place (same count and correct position, e.g. "Graph A" replaced by the actual graph).
+     */
+    fun refreshedFrom(current: Question?): AnswerRecord {
+        if (current == null) return this
+        val norm = { s: String -> s.replace(Regex("""\s+"""), "") }
+        val sameSet = choices.map(norm).sorted() == current.choices.map(norm).sorted()
+        val newChoices = when {
+            sameSet -> choices
+            choices.size == current.choices.size && correctIndex == current.correctIndex -> current.choices
+            else -> choices
+        }
+        return copy(questionText = current.text, explanation = current.explanation, choices = newChoices)
+    }
 }
 
 @Serializable

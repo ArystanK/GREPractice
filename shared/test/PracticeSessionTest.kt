@@ -80,4 +80,21 @@ class PracticeSessionTest {
         assertEquals("2:34", formatDuration(154_000))
         assertEquals("2:50:00", formatDuration(170 * 60_000L))
     }
+
+    @Test
+    fun reviewShowsTheCurrentVersionOfAQuestion() {
+        val old = kz.arctan.grepractice.model.AnswerRecord("q1", "T", "System omitted", listOf("Graph A", "Graph B"), 1, selectedIndex = 0)
+        // Choices replaced in place (same count, same correct position): use the new ones.
+        val fixed = Question("q1", "T", "Full system", listOf("![graph](img:a.png)", "![graph](img:b.png)"), 1, explanation = "new")
+        val r = old.refreshedFrom(fixed)
+        assertEquals("Full system", r.questionText)
+        assertEquals(fixed.choices, r.choices)
+        assertEquals("new", r.explanation)
+        assertEquals(0, r.selectedIndex)
+        // Same choices in a shuffled order: keep the recorded order so the indices stay right.
+        val shuffled = old.copy(choices = listOf("b", "a"), correctIndex = 0)
+        assertEquals(listOf("b", "a"), shuffled.refreshedFrom(Question("q1", "T", "t", listOf("a", "b"), 1)).choices)
+        // Deleted question: the snapshot is kept as is.
+        assertEquals(old, old.refreshedFrom(null))
+    }
 }
