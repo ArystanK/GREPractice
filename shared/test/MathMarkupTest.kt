@@ -7,6 +7,7 @@ import kz.arctan.grepractice.ui.math.isInsideMath
 import kz.arctan.grepractice.ui.math.mathToPlain
 import kz.arctan.grepractice.ui.math.normalizeMath
 import kz.arctan.grepractice.ui.math.parseMath
+import kz.arctan.grepractice.ui.math.rewritePiecewise
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -64,6 +65,37 @@ class MathMarkupTest {
             normalizeMath("""1 - x^{-1} + \text{well-defined set} - \operatorname{arc-sin} x"""),
         )
         assertEquals("""\textstyle\minus1""", normalizeMath("""\textstyle -1"""))
+    }
+
+    @Test
+    fun rewritesPiecewiseIntoAligned() {
+        // cases → aligned with left-aligned columns
+        assertEquals(
+            """f(x)=\left\{\begin{aligned}&x/2, &&x\text{ rational},\\ &x/3, &&x\text{ irrational}.\end{aligned}\right.""",
+            rewritePiecewise("""f(x)=\begin{cases}x/2,&x\text{ rational},\\ x/3,&x\text{ irrational}.\end{cases}"""),
+        )
+        // brace around an array
+        assertEquals(
+            """f(x)=\left\{\begin{aligned}&3x^2 &&\text{if } x\in\mathbb{Q}\\ &-5x^2 &&\text{if } x\notin\mathbb{Q}\end{aligned}\right.""",
+            rewritePiecewise("""f(x)=\left\{\begin{array}{ll} 3x^2 & \text{if } x\in\mathbb{Q}\\ -5x^2 & \text{if } x\notin\mathbb{Q} \end{array}\right."""),
+        )
+        // Nested environments and braces inside a cell aren't split.
+        assertEquals(
+            """\left\{\begin{aligned}&\begin{pmatrix}1&2\\3&4\end{pmatrix} &&\text{if } \{a\}\\ &0 &&\text{else}\end{aligned}\right.""",
+            rewritePiecewise("""\begin{cases}\begin{pmatrix}1&2\\3&4\end{pmatrix}&\text{if } \{a\}\\0&\text{else}\end{cases}"""),
+        )
+        // Arrays that aren't one-sided braces, and other text, are left alone.
+        val table = """\left(\begin{array}{cc}1&2\end{array}\right)"""
+        assertEquals(table, rewritePiecewise(table))
+        assertEquals("x+1", rewritePiecewise("x+1"))
+    }
+
+    @Test
+    fun detachesScriptsFromStyledGroups() {
+        assertEquals("""x\in\mathbb{R}{}^2""", normalizeMath("""x \in \mathbb{R}^2"""))
+        assertEquals("""\mathbb{Z}{}_{10}+\mathbf{v}{}_1""", normalizeMath("""\mathbb{Z}_{10}+\mathbf{v}_1"""))
+        assertEquals("""5\text{ cm}{}^2""", normalizeMath("""5\text{ cm}^2"""))
+        assertEquals("""\mathbb{R}\to{}x^2""", normalizeMath("""\mathbb{R}\to x^2"""))
     }
 
     @Test

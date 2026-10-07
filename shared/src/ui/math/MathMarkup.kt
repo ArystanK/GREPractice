@@ -91,7 +91,7 @@ fun isInsideMath(input: String, offset: Int): Boolean {
     return inline || display
 }
 
-private val TextCommands = listOf("\\text", "\\textrm", "\\textit", "\\textbf", "\\mathrm", "\\operatorname", "\\mbox")
+private val TextCommands = listOf("\\text", "\\textrm", "\\textit", "\\textbf", "\\texttt", "\\textsf", "\\mathrm", "\\operatorname", "\\mbox")
 
 /**
  * Adapts LaTeX source to how TeX treats math mode, where the renderer differs:
@@ -101,7 +101,18 @@ private val TextCommands = listOf("\\text", "\\textrm", "\\textit", "\\textbf", 
  *
  * Arguments of text commands such as `\text{well-defined set}` are left untouched.
  */
-fun normalizeMath(latex: String): String {
+fun normalizeMath(source: String): String = detachStyledScripts(dropSpacesAndMinus(rewritePiecewise(source)))
+
+/** A font or text group directly followed by a superscript or subscript, such as `\mathbb{R}^`. */
+private val StyledScript = Regex("""(\\(?:mathbb|mathbf|mathcal|mathfrak|mathsf|mathit|mathrm|boldsymbol|operatorname|text[a-z]*|mbox)\{[^{}]*\})(?=[\^_])""")
+
+/**
+ * The renderer attaches scripts to a styled group as if it were very tall, so `\mathbb{R}^2` gets
+ * its exponent far above the letter. An empty group in between, `\mathbb{R}{}^2`, places them as TeX does.
+ */
+private fun detachStyledScripts(latex: String): String = StyledScript.replace(latex, "$1{}")
+
+private fun dropSpacesAndMinus(latex: String): String {
     if ('-' !in latex && ' ' !in latex) return latex
     val out = StringBuilder(latex.length)
     var afterLetterCommand = false
@@ -158,6 +169,86 @@ fun normalizeMath(latex: String): String {
         i++
     }
     return out.toString()
+}
+
+/** `\begin{cases}`/`\begin{dcases}`, or a brace around an array: `\left\{ \begin{array}{…}`. */
+private val PiecewiseStart = Regex("""\\begin\{(d?cases)\}|\\left\\\{\s*\\begin\{array\}\{[^}]*\}""")
+private val RightDot = Regex("""^\s*\\right\.""")
+
+/**
+ * Rewrites piecewise definitions into `\left\{\begin{aligned} &a &&b \\ … \end{aligned}\right.`, the
+ * one form the renderer lays out correctly: its `cases` swaps the columns and adds a stray "if", and
+ * a brace around an `array` is sized and placed wrongly. The `&…&&` pattern left-aligns each column,
+ * as TeX's `cases` does.
+ */
+internal fun rewritePiecewise(latex: String): String {
+    var s = latex
+    var searchFrom = 0
+    while (true) {
+        val m = PiecewiseStart.find(s, searchFrom) ?: return s
+        val isArray = m.value.startsWith("\\left")
+        val env = if (isArray) "array" else m.groupValues[1]
+        val bodyStart = m.range.last + 1
+        val end = matchingEnd(s, bodyStart, env)
+        if (end < 0) return s
+        var after = end + "\\end{$env}".length
+        if (isArray) {
+            val right = RightDot.find(s.substring(after))
+            if (right == null) {
+                searchFrom = after // a brace that isn't one-sided: leave it alone
+                continue
+            }
+            after += right.value.length
+        }
+        val rows = splitTopLevel(s.substring(bodyStart, end), "\\\\")
+            .map { row -> splitTopLevel(row, "&").map { it.trim() } }
+            .filter { cells -> cells.any { it.isNotEmpty() } }
+        val body = rows.joinToString("\\\\ ") { cells -> "&" + cells.joinToString(" &&") }
+        val replacement = "\\left\\{\\begin{aligned}$body\\end{aligned}\\right."
+        s = s.substring(0, m.range.first) + replacement + s.substring(after)
+        searchFrom = m.range.first + replacement.length
+    }
+}
+
+/** Index of the `\end{env}` matching an environment whose body starts at [from], or -1. */
+private fun matchingEnd(s: String, from: Int, env: String): Int {
+    var depth = 0
+    var i = from
+    while (i < s.length) {
+        when {
+            s.startsWith("\\begin{$env}", i) -> depth++
+            s.startsWith("\\end{$env}", i) -> if (depth == 0) return i else depth--
+        }
+        i++
+    }
+    return -1
+}
+
+/** Splits [body] at [separator] occurrences outside braces and nested environments. */
+private fun splitTopLevel(body: String, separator: String): List<String> {
+    val parts = mutableListOf<String>()
+    var depth = 0
+    var start = 0
+    var i = 0
+    while (i < body.length) {
+        if (depth == 0 && body.startsWith(separator, i) && !(separator == "&" && i > 0 && body[i - 1] == '\\')) {
+            parts += body.substring(start, i)
+            i += separator.length
+            start = i
+            continue
+        }
+        when {
+            // Skip the whole \begin{name} / \end{name}, so the name's braces don't count.
+            body.startsWith("\\begin{", i) -> { depth++; i = body.indexOf('}', i).let { if (it < 0) body.length else it + 1 } }
+            body.startsWith("\\end{", i) -> { depth--; i = body.indexOf('}', i).let { if (it < 0) body.length else it + 1 } }
+            body[i] == '\\' -> i += 2 // escaped character or command start, e.g. \{ or \\
+            body[i] == '{' -> { depth++; i++ }
+            body[i] == '}' -> { depth--; i++ }
+            else -> i++
+        }
+    }
+    parts += body.substring(start)
+    return parts
 }
 
 /** Strips math delimiters for places where rendering isn't possible (e.g. dialog text, titles). */
