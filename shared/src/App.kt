@@ -18,6 +18,7 @@ import kz.arctan.grepractice.ui.RandomScreen
 import kz.arctan.grepractice.ui.ResultScreen
 import kz.arctan.grepractice.ui.SessionScreen
 import kz.arctan.grepractice.ui.SetupScreen
+import kz.arctan.grepractice.ui.TopicHistoryScreen
 import kz.arctan.grepractice.ui.TransferScreen
 
 @Composable
@@ -39,7 +40,8 @@ fun App() {
                 Screen.Bank -> BankScreen(vm)
                 is Screen.Editor -> EditorScreen(vm, screen.questionId)
                 Screen.Transfer -> TransferScreen(vm)
-                Screen.History -> HistoryScreen(vm)
+                is Screen.History -> HistoryScreen(vm, screen.byTopic)
+                is Screen.TopicHistory -> TopicHistoryScreen(vm, screen.topic)
                 Screen.Account -> AccountScreen(vm)
                 Screen.Exams -> ExamsScreen(vm)
             }

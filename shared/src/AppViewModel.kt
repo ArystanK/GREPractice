@@ -40,7 +40,10 @@ sealed interface Screen {
     @Serializable data object Bank : Screen
     @Serializable data class Editor(val questionId: String?) : Screen
     @Serializable data object Transfer : Screen
-    @Serializable data object History : Screen
+    /** Past sessions, or with [byTopic] the per-topic overview. */
+    @Serializable data class History(val byTopic: Boolean = false) : Screen
+    /** Every attempt at the questions of one topic. */
+    @Serializable data class TopicHistory(val topic: String) : Screen
     @Serializable data object Account : Screen
 }
 

@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,19 +32,41 @@ import kz.arctan.grepractice.Screen
 import kz.arctan.grepractice.data.formatDateTime
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.PracticeResult
+import kz.arctan.grepractice.practice.TopicSummary
 import kz.arctan.grepractice.practice.formatDuration
+import kz.arctan.grepractice.practice.topicSummaries
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun HistoryScreen(vm: AppViewModel) {
+fun HistoryScreen(vm: AppViewModel, initiallyByTopic: Boolean = false) {
     val repo = vm.repo
+    var byTopic by rememberSaveable { mutableStateOf(initiallyByTopic) }
     var mode by rememberSaveable { mutableStateOf<PracticeMode?>(null) }
     var toDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val toDelete = toDeleteId?.let { id -> repo.results.firstOrNull { it.id == id } }
     val shown = repo.results.filter { mode == null || it.mode == mode }
+    val topics = if (byTopic) topicSummaries(repo.results) else emptyList()
 
     ScreenScaffold(title = "History", onBack = vm::back) { padding ->
         LazyColumn(contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SelectChip(selected = !byTopic, onClick = { byTopic = false }, label = { Text("Sessions") })
+                    SelectChip(selected = byTopic, onClick = { byTopic = true }, label = { Text("By topic") })
+                }
+            }
+            if (byTopic) {
+                if (topics.isEmpty()) item { EmptyState("Finish a practice session to see your history by topic.") }
+                else item {
+                    Text(
+                        "Weakest first. Tap a topic for every answer you've given in it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                items(topics, key = { it.topic }) { t -> TopicRow(t, onOpen = { vm.navigate(Screen.TopicHistory(t.topic)) }) }
+                return@LazyColumn
+            }
             item {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SelectChip(selected = mode == null, onClick = { mode = null }, label = { Text("All (${repo.results.size})") })
@@ -66,6 +89,43 @@ fun HistoryScreen(vm: AppViewModel) {
             onConfirm = { repo.deleteResult(r.id); toDeleteId = null },
             onDismiss = { toDeleteId = null },
         )
+    }
+}
+
+@Composable
+private fun TopicRow(t: TopicSummary, onOpen: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(t.topic, fontWeight = FontWeight.SemiBold)
+                LinearProgressIndicator(progress = { t.percent / 100f }, modifier = Modifier.fillMaxWidth(), color = accuracyColor(t.percent))
+                Text(
+                    "${t.correct}/${t.attempts} correct · ${t.distinctQuestions} question${if (t.distinctQuestions == 1) "" else "s"}" +
+                        (t.avgTimeMs?.let { " · ${formatDuration(it)} avg" } ?: "") +
+                        " · last ${formatDate(t.lastPracticedAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("${t.percent}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = accuracyColor(t.percent))
+        }
+    }
+}
+
+/** The date part of [formatDateTime], e.g. "Oct 7, 2026". */
+internal fun formatDate(millis: Long): String = formatDateTime(millis).substringBeforeLast(' ')
+
+/** The colours the home screen uses for topic accuracy. */
+@Composable
+internal fun accuracyColor(percent: Int): Color {
+    val fb = LocalFeedbackColors.current
+    return when {
+        percent >= 75 -> fb.correct
+        percent >= 50 -> fb.flag
+        else -> fb.incorrect
     }
 }
 

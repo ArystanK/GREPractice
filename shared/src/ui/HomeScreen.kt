@@ -78,7 +78,7 @@ fun HomeScreen(vm: AppViewModel) {
             Text("Manage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ActionCard("Question bank", "Browse, add, edit and delete questions") { vm.navigate(Screen.Bank) }
-                ActionCard("History", "Review past sessions and your answers") { vm.navigate(Screen.History) }
+                ActionCard("History", "Review past sessions and your answers") { vm.navigate(Screen.History()) }
                 ActionCard("Import / export", "Bulk add questions as JSON or back up your bank") {
                     vm.navigate(Screen.Transfer)
                 }
@@ -158,6 +158,9 @@ private fun TopicPerformance(vm: AppViewModel) {
                 )
             }
         }
-        TextButton(onClick = { vm.navigate(Screen.History) }) { Text("See all sessions →") }
+        Row {
+            TextButton(onClick = { vm.navigate(Screen.History()) }) { Text("See all sessions →") }
+            TextButton(onClick = { vm.navigate(Screen.History(byTopic = true)) }) { Text("History by topic →") }
+        }
     }
 }

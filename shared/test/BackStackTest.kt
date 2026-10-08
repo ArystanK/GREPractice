@@ -9,7 +9,7 @@ class BackStackTest {
         val stack = listOf(
             Screen.Home, Screen.Exams, Screen.Setup(exam = false, topic = "Topology"), Screen.Setup(exam = true),
             Screen.Result("r1"), Screen.Random, Screen.Bank, Screen.Editor("q1"), Screen.Editor(null),
-            Screen.Transfer, Screen.History, Screen.Account,
+            Screen.Transfer, Screen.History(), Screen.History(byTopic = true), Screen.TopicHistory("Real Analysis"), Screen.Account,
         )
         assertEquals(stack, decodeBackStack(encodeBackStack(stack), sessionRunning = false))
     }
