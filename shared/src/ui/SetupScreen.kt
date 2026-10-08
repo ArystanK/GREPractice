@@ -38,6 +38,7 @@ import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.Question
 import kz.arctan.grepractice.practice.PracticeConfig
+import kz.arctan.grepractice.practice.QuestionPicker
 import kz.arctan.grepractice.practice.isPracticeTestQuestion
 import kz.arctan.grepractice.practice.formatDuration
 import kotlin.math.roundToInt
@@ -204,8 +205,8 @@ fun SetupScreen(vm: AppViewModel, setup: Screen.Setup) {
                     shuffleChoices = it
                 }
                 OptionSwitch(
-                    "Prefer unseen and missed questions",
-                    "Questions you've never answered, or got wrong last time, are picked first.",
+                    "Focus on weak spots",
+                    "As in Random question: favours questions you missed or haven't answered, and topics where you're slower than GRE pace.",
                     preferWeak,
                 ) { preferWeak = it }
                 if (hasPracticeTests) {
@@ -237,12 +238,6 @@ private fun topicTitle(selected: Set<String>, totalTopics: Int): String = when {
     else -> "${selected.size} topics"
 }
 
-/** Random sample of [count] questions; with [preferWeak], unseen and last-missed questions come first. */
-fun pickQuestions(repo: Repository, pool: List<Question>, count: Int, preferWeak: Boolean): List<Question> {
-    if (!preferWeak) return pool.shuffled().take(count)
-    // Results are newest-first, so the first record seen for a question is its latest attempt.
-    val lastCorrect = HashMap<String, Boolean>()
-    repo.results.forEach { r -> r.answers.forEach { a -> lastCorrect.getOrPut(a.questionId) { a.isCorrect } } }
-    val (weak, strong) = pool.partition { lastCorrect[it.id] != true }
-    return (weak.shuffled() + strong.shuffled()).take(count).shuffled()
-}
+/** Random sample of [count] questions; with [preferWeak], weighted towards weak spots as in Random question. */
+fun pickQuestions(repo: Repository, pool: List<Question>, count: Int, preferWeak: Boolean): List<Question> =
+    if (preferWeak) QuestionPicker(repo.results).pickMany(pool, count) else pool.shuffled().take(count)

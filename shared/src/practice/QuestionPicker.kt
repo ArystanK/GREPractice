@@ -73,6 +73,19 @@ class QuestionPicker(results: List<PracticeResult>) {
         return Pick(question, reasonFor(question), slowTopicAvgMs(question.topic))
     }
 
+    /**
+     * [count] distinct questions from [pool] (all of it if smaller), each drawn as [pick] would from
+     * the ones not chosen yet, so a session gets the same mix that Random question shows one by one.
+     */
+    fun pickMany(pool: List<Question>, count: Int, random: Random = Random.Default): List<Question> {
+        val remaining = pool.toMutableList()
+        return List(minOf(count, pool.size)) {
+            val question = pick(remaining, random)!!.question
+            remaining.removeAt(remaining.indexOfFirst { it === question })
+            question
+        }
+    }
+
     private enum class Bucket(val share: Double) { MISSED(0.45), UNANSWERED(0.40), REVIEW(0.15) }
 
     private fun bucketOf(reason: PickReason) = when (reason) {

@@ -84,6 +84,31 @@ class QuestionPickerTest {
     }
 
     @Test
+    fun aSessionGetsDistinctQuestionsWithTheSameMix() {
+        val missed = (1..20).map { q("m$it") }
+        val unseen = (1..500).map { q("u$it") }
+        val picker = QuestionPicker(listOf(result(*missed.map { answer(it, 1) }.toTypedArray())))
+        val random = Random(7)
+        var missedPicked = 0
+        repeat(200) {
+            val session = picker.pickMany(missed + unseen, 10, random)
+            assertEquals(10, session.size)
+            assertEquals(10, session.map { it.id }.toSet().size)
+            missedPicked += session.count { it.id.startsWith("m") }
+        }
+        // With nothing to review, the shares are 45:40 between missed and unseen, so missed questions
+        // get 45/85 ≈ 53% of the draws (about 1059 of 2000) although they're under 4% of the pool.
+        assertTrue(missedPicked in 960..1160, "missed $missedPicked of 2000")
+    }
+
+    @Test
+    fun aSessionLargerThanThePoolTakesAllOfIt() {
+        val pool = (1..3).map { q("q$it") }
+        assertEquals(pool.toSet(), QuestionPicker(emptyList()).pickMany(pool, 10).toSet())
+        assertTrue(QuestionPicker(emptyList()).pickMany(emptyList(), 5).isEmpty())
+    }
+
+    @Test
     fun emptyPoolPicksNothing() {
         assertNull(QuestionPicker(emptyList()).pick(emptyList()))
     }
