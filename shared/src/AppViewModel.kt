@@ -5,9 +5,13 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.drop
@@ -23,20 +27,39 @@ import kz.arctan.grepractice.data.nowMillis
 import kz.arctan.grepractice.practice.PracticeConfig
 import kz.arctan.grepractice.practice.PracticeSession
 
+@Serializable
 sealed interface Screen {
-    data object Home : Screen
+    @Serializable data object Home : Screen
     /** "Simulated exam": the bank's full practice tests plus the random exam. */
-    data object Exams : Screen
+    @Serializable data object Exams : Screen
     /** [exam] = randomly assembled full exam; otherwise custom/topic practice, optionally preselecting [topic]. */
-    data class Setup(val exam: Boolean, val topic: String? = null) : Screen
-    data object Session : Screen
-    data class Result(val resultId: String) : Screen
-    data object Random : Screen
-    data object Bank : Screen
-    data class Editor(val questionId: String?) : Screen
-    data object Transfer : Screen
-    data object History : Screen
-    data object Account : Screen
+    @Serializable data class Setup(val exam: Boolean, val topic: String? = null) : Screen
+    @Serializable data object Session : Screen
+    @Serializable data class Result(val resultId: String) : Screen
+    @Serializable data object Random : Screen
+    @Serializable data object Bank : Screen
+    @Serializable data class Editor(val questionId: String?) : Screen
+    @Serializable data object Transfer : Screen
+    @Serializable data object History : Screen
+    @Serializable data object Account : Screen
+}
+
+private const val BACK_STACK_KEY = "backStack"
+private val BackStackSerializer = ListSerializer(Screen.serializer())
+
+internal fun encodeBackStack(screens: List<Screen>): String = Json.encodeToString(BackStackSerializer, screens)
+
+/**
+ * The back stack saved by [encodeBackStack], or just Home when there is none or it can't be read
+ * (e.g. saved by an older version). The session screen is shown on top exactly when a session is
+ * [sessionRunning], also after a cold start that has no saved stack (the session itself is stored
+ * on disk); without one, the user lands on the screen they started it from.
+ */
+internal fun decodeBackStack(saved: String?, sessionRunning: Boolean): List<Screen> {
+    val screens = saved?.let { runCatching { Json.decodeFromString(BackStackSerializer, it) }.getOrNull() }.orEmpty()
+        .filter { it != Screen.Session }
+    val withHome = if (screens.firstOrNull() == Screen.Home) screens else listOf(Screen.Home) + screens
+    return if (sessionRunning) withHome + Screen.Session else withHome
 }
 
 sealed interface SyncState {
@@ -52,14 +75,25 @@ private const val AUTO_SYNC_DELAY_MS = 3_000L
 class AppViewModel(
     val repo: Repository = Repository(),
     val cloud: CloudBackend = createCloudBackend(),
+    /** Keeps the back stack when Android kills the process in the background. */
+    private val savedState: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
     private val syncEngine = SyncEngine(repo, cloud)
 
-    val backStack = mutableStateListOf<Screen>(Screen.Home)
-    val screen: Screen get() = backStack.last()
-
-    var session by mutableStateOf<PracticeSession?>(null)
+    /** The running session; resumed from disk when the app's process ended during one. */
+    var session by mutableStateOf(repo.loadActiveSession()?.let(PracticeSession::restore))
         private set
+
+    private val stack = mutableStateListOf<Screen>().apply {
+        addAll(decodeBackStack(savedState[BACK_STACK_KEY], sessionRunning = session != null))
+    }
+    val backStack: List<Screen> get() = stack
+    val screen: Screen get() = stack.last()
+
+    private fun updateBackStack(change: MutableList<Screen>.() -> Unit) {
+        stack.change()
+        savedState[BACK_STACK_KEY] = encodeBackStack(stack)
+    }
 
     var syncState by mutableStateOf<SyncState>(SyncState.Idle)
         private set
@@ -86,6 +120,10 @@ class AppViewModel(
             snapshotFlow { repo.version }.drop(1).debounce(AUTO_SYNC_DELAY_MS).collect {
                 if (cloud.user.value != null) syncNow()
             }
+        }
+        viewModelScope.launch {
+            // Store the running session on every answer, flag or move (not on clock ticks).
+            snapshotFlow { session?.snapshot() }.drop(1).collect { repo.saveActiveSession(it) }
         }
     }
 
@@ -180,19 +218,19 @@ class AppViewModel(
         }
     }
 
-    fun navigate(screen: Screen) {
-        backStack.add(screen)
-    }
+    fun navigate(screen: Screen) = updateBackStack { add(screen) }
 
-    fun back() {
-        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
-    }
+    fun back() = updateBackStack { if (size > 1) removeAt(lastIndex) }
+
+    fun goHome() = updateBackStack { retainAll { it == Screen.Home } }
 
     fun startSession(config: PracticeConfig) {
-        session = PracticeSession(config)
-        // Starting from a setup or result screen replaces it, so "back" from the session goes home.
-        if (screen is Screen.Setup || screen is Screen.Result) backStack.removeAt(backStack.lastIndex)
-        backStack.add(Screen.Session)
+        session = PracticeSession(config).also { repo.saveActiveSession(it.snapshot()) }
+        updateBackStack {
+            // Starting from a setup or result screen replaces it, so "back" from the session goes home.
+            if (screen is Screen.Setup || screen is Screen.Result) removeAt(lastIndex)
+            add(Screen.Session)
+        }
     }
 
     /** Saves the result and replaces the session screen with its review. */
@@ -200,13 +238,18 @@ class AppViewModel(
         val s = session ?: return
         val result = s.finish(timedOut)
         repo.addResult(result)
+        // Cleared right away, so a result is never saved while its session is still on disk.
+        repo.saveActiveSession(null)
         session = null
-        backStack.removeAll { it == Screen.Session }
-        backStack.add(Screen.Result(result.id))
+        updateBackStack {
+            removeAll { it == Screen.Session }
+            add(Screen.Result(result.id))
+        }
     }
 
     fun abandonSession() {
+        repo.saveActiveSession(null)
         session = null
-        backStack.removeAll { it == Screen.Session }
+        updateBackStack { removeAll { it == Screen.Session } }
     }
 }

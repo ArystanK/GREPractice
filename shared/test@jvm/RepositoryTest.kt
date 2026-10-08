@@ -14,6 +14,8 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RepositoryTest {
@@ -118,6 +120,25 @@ class RepositoryTest {
         assertEquals(1, reloaded.results.size)
         assertEquals(1, reloaded.results[0].correct)
         assertEquals(3, reloaded.topicStats().sumOf { it.answered })
+    }
+
+    @Test
+    fun runningSessionIsStoredUntilCleared() {
+        val repo = Repository()
+        assertNull(repo.loadActiveSession())
+        val s = PracticeSession(PracticeConfig(PracticeMode.EXAM, "Exam", repo.questions.take(3), 60_000, instantFeedback = false, shuffleChoices = true))
+        s.select(1)
+        repo.saveActiveSession(s.snapshot())
+
+        // A new process (fresh Repository) sees the same session, choice order and answer.
+        assertEquals(s.snapshot(), Repository().loadActiveSession())
+        // Separate from the desktop sign-in, which lives in session.json.
+        assertFalse(File(dataLocation(), "session.json").exists())
+
+        repo.saveActiveSession(null)
+        assertNull(Repository().loadActiveSession())
+        File(dataLocation(), "practice-session.json").writeText("{ damaged")
+        assertNull(Repository().loadActiveSession())
     }
 
     @Test

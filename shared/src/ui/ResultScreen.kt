@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kz.arctan.grepractice.AppViewModel
-import kz.arctan.grepractice.Screen
 import kz.arctan.grepractice.data.formatDateTime
 import kz.arctan.grepractice.model.AnswerRecord
 import kz.arctan.grepractice.model.Gre
@@ -47,7 +46,7 @@ fun ResultScreen(vm: AppViewModel, resultId: String) {
     ScreenScaffold(
         title = "Results",
         onBack = vm::back,
-        actions = { if (vm.backStack.size > 2) androidx.compose.material3.TextButton(onClick = { vm.backStack.retainAll { it == Screen.Home } }) { Text("Home") } },
+        actions = { if (vm.backStack.size > 2) androidx.compose.material3.TextButton(onClick = { vm.goHome() }) { Text("Home") } },
     ) { padding ->
         if (result == null) {
             EmptyState("This result was deleted.")
@@ -165,7 +164,7 @@ private fun RetryButtons(vm: AppViewModel, result: PracticeResult) {
                 )
             }) { Text("Retry ${missed.size} missed") }
         }
-        OutlinedButton(onClick = { vm.backStack.retainAll { it == Screen.Home } }) { Text("Back to home") }
+        OutlinedButton(onClick = { vm.goHome() }) { Text("Back to home") }
         Spacer(Modifier.weight(1f))
     }
 }

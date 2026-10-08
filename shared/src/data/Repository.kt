@@ -15,6 +15,7 @@ import kz.arctan.grepractice.data.cloud.QUESTIONS_COLLECTION
 import kz.arctan.grepractice.data.cloud.RESULTS_COLLECTION
 import kz.arctan.grepractice.model.PracticeResult
 import kz.arctan.grepractice.model.Question
+import kz.arctan.grepractice.practice.SavedSession
 import kz.arctan.grepractice.practice.isPracticeTestQuestion
 import kotlin.random.Random
 
@@ -22,6 +23,8 @@ private const val QUESTIONS_FILE = "questions.json"
 private const val BANK_FILE = "bank.json"
 private const val RESULTS_FILE = "results.json"
 private const val META_FILE = "meta.json"
+/** Not "session.json": the desktop app keeps its sign-in there. */
+private const val ACTIVE_SESSION_FILE = "practice-session.json"
 
 /** Key in [Meta.uploadedImages] for figures uploaded to the shared bank (rather than to an account). */
 const val SHARED_IMAGES_KEY = "shared-bank"
@@ -297,6 +300,18 @@ class Repository {
         ids.forEach { shared.remove(it) }
         saveShared()
         rebuild()
+    }
+
+    // ---- The running practice session (local only, never synced) ----
+
+    /** The session that was running when the app last stopped, if any. */
+    fun loadActiveSession(): SavedSession? = readDataFile(ACTIVE_SESSION_FILE)
+        ?.takeIf { it.isNotBlank() }
+        ?.let { runCatching { json.decodeFromString(SavedSession.serializer(), it) }.getOrNull() }
+
+    /** Stores the running session, or clears it with null once the session is finished or abandoned. */
+    fun saveActiveSession(session: SavedSession?) {
+        writeDataFile(ACTIVE_SESSION_FILE, session?.let { json.encodeToString(SavedSession.serializer(), it) }.orEmpty())
     }
 
     // ---- Results ----

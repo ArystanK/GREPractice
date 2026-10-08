@@ -75,6 +75,46 @@ class PracticeSessionTest {
     }
 
     @Test
+    fun aRestoredSessionContinuesWhereItLeftOff() {
+        val s = session(shuffle = true, limitMs = 60 * 60_000L, instant = true)
+        s.select(1); s.check()
+        s.goTo(2); s.select(0); s.toggleFlag()
+        val saved = s.snapshot()
+
+        val r = PracticeSession.restore(saved)!!
+        assertEquals(s.startedAt, r.startedAt)
+        assertEquals(2, r.current)
+        assertEquals(s.items.map { it.choices }, r.items.map { it.choices }) // same shuffled order
+        assertEquals(s.items.map { it.correctIndex }, r.items.map { it.correctIndex })
+        assertEquals(listOf(1, null, 0, null), r.selected.toList())
+        assertEquals(listOf(false, false, true, false), r.flagged.toList())
+        assertEquals(listOf(true, false, false, false), r.checked.toList())
+        assertEquals(saved, r.snapshot())
+        // Checked answers stay locked after a restore, and the result matches the original's.
+        r.goTo(0); r.select(3)
+        assertEquals(1, r.selected[0])
+        assertEquals(s.finish().answers.map { it.selectedIndex }, r.finish().answers.map { it.selectedIndex })
+    }
+
+    @Test
+    fun aRestoredTimedSessionKeepsItsClockAndTimesOut() {
+        val s = session(limitMs = 1_000)
+        val saved = s.snapshot().copy(startedAt = s.startedAt - 5_000) // the app was closed for a while
+        val r = PracticeSession.restore(saved)!!
+        assertTrue(r.tick())
+        assertTrue(r.finishedResult!!.timedOut)
+        assertEquals(1_000, r.finishedResult!!.durationMs)
+    }
+
+    @Test
+    fun inconsistentSavedSessionsAreRejected() {
+        val saved = session().snapshot()
+        assertNull(PracticeSession.restore(saved.copy(current = 9)))
+        assertNull(PracticeSession.restore(saved.copy(items = emptyList())))
+        assertNull(PracticeSession.restore(saved.copy(items = saved.items.map { it.copy(selected = 7) })))
+    }
+
+    @Test
     fun formatsDurations() {
         assertEquals("0:05", formatDuration(5_000))
         assertEquals("2:34", formatDuration(154_000))

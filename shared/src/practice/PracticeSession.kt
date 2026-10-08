@@ -12,6 +12,7 @@ import kz.arctan.grepractice.model.AnswerRecord
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.PracticeResult
 import kz.arctan.grepractice.model.Question
+import kotlinx.serialization.Serializable
 
 data class PracticeConfig(
     val mode: PracticeMode,
@@ -29,21 +30,45 @@ data class PracticeConfig(
 /** A question as presented in this session; [choices] may be shuffled relative to the bank. */
 class SessionItem(val question: Question, val choices: List<String>, val correctIndex: Int)
 
+/** A running session as stored on disk, so it can be resumed after the app's process ends. */
+@Serializable
+data class SavedSession(
+    val mode: PracticeMode,
+    val title: String,
+    val timeLimitMs: Long?,
+    val instantFeedback: Boolean,
+    val shuffleChoices: Boolean,
+    val testId: String? = null,
+    val startedAt: Long,
+    val current: Int,
+    val currentEnteredAt: Long,
+    val items: List<SavedItem>,
+)
+
+/** One question of a [SavedSession], with the questions kept as shown, so edits made meanwhile don't change it. */
+@Serializable
+data class SavedItem(
+    val question: Question,
+    val choices: List<String>,
+    val correctIndex: Int,
+    val selected: Int? = null,
+    val flagged: Boolean = false,
+    val checked: Boolean = false,
+    val timeSpentMs: Long = 0,
+)
+
 /**
  * Live state of a timed practice session. Time is measured from the wall clock, so it stays
- * correct even if the UI stops ticking for a while (e.g. on Android configuration changes).
+ * correct even if the UI stops ticking for a while (e.g. on Android configuration changes), and
+ * a restored session's clock has kept running while the app was closed, as in a real exam.
  */
-class PracticeSession(val config: PracticeConfig) {
-    val items: List<SessionItem> = config.questions.map { q ->
-        if (config.shuffleChoices) {
-            val order = q.choices.indices.shuffled()
-            SessionItem(q, order.map { q.choices[it] }, order.indexOf(q.correctIndex))
-        } else {
-            SessionItem(q, q.choices, q.correctIndex)
-        }
-    }
+class PracticeSession private constructor(
+    val config: PracticeConfig,
+    val items: List<SessionItem>,
+    val startedAt: Long,
+) {
+    constructor(config: PracticeConfig) : this(config, presentedItems(config), nowMillis())
 
-    val startedAt: Long = nowMillis()
     val selected = mutableStateListOf<Int?>().apply { repeat(items.size) { add(null) } }
     val flagged = mutableStateListOf<Boolean>().apply { repeat(items.size) { add(false) } }
     /** With instant feedback, a question is locked once checked. */
@@ -132,6 +157,62 @@ class PracticeSession(val config: PracticeConfig) {
         )
         finishedResult = result
         return result
+    }
+
+    /** The state to store; reads only what answering and navigating change, not the ticking clock. */
+    fun snapshot(): SavedSession = SavedSession(
+        mode = config.mode,
+        title = config.title,
+        timeLimitMs = config.timeLimitMs,
+        instantFeedback = config.instantFeedback,
+        shuffleChoices = config.shuffleChoices,
+        testId = config.testId,
+        startedAt = startedAt,
+        current = current,
+        currentEnteredAt = currentEnteredAt,
+        items = items.mapIndexed { i, item ->
+            SavedItem(item.question, item.choices, item.correctIndex, selected[i], flagged[i], checked[i], timeSpent[i])
+        },
+    )
+
+    companion object {
+        private fun presentedItems(config: PracticeConfig): List<SessionItem> = config.questions.map { q ->
+            if (config.shuffleChoices) {
+                val order = q.choices.indices.shuffled()
+                SessionItem(q, order.map { q.choices[it] }, order.indexOf(q.correctIndex))
+            } else {
+                SessionItem(q, q.choices, q.correctIndex)
+            }
+        }
+
+        /** The session [saved] by [snapshot], or null if it is inconsistent (e.g. a damaged file). */
+        fun restore(saved: SavedSession): PracticeSession? {
+            val valid = saved.items.isNotEmpty() && saved.current in saved.items.indices && saved.items.all { item ->
+                item.correctIndex in item.choices.indices && (item.selected == null || item.selected in item.choices.indices)
+            }
+            if (!valid) return null
+            val config = PracticeConfig(
+                mode = saved.mode,
+                title = saved.title,
+                questions = saved.items.map { it.question },
+                timeLimitMs = saved.timeLimitMs,
+                instantFeedback = saved.instantFeedback,
+                shuffleChoices = saved.shuffleChoices,
+                testId = saved.testId,
+            )
+            val items = saved.items.map { SessionItem(it.question, it.choices, it.correctIndex) }
+            return PracticeSession(config, items, saved.startedAt).apply {
+                saved.items.forEachIndexed { i, item ->
+                    selected[i] = item.selected
+                    flagged[i] = item.flagged
+                    checked[i] = item.checked
+                    timeSpent[i] = item.timeSpentMs
+                }
+                current = saved.current
+                currentEnteredAt = saved.currentEnteredAt
+                now = nowMillis()
+            }
+        }
     }
 }
 
