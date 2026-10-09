@@ -101,7 +101,71 @@ private val TextCommands = listOf("\\text", "\\textrm", "\\textit", "\\textbf", 
  *
  * Arguments of text commands such as `\text{well-defined set}` are left untouched.
  */
-fun normalizeMath(source: String): String = detachStyledScripts(dropSpacesAndMinus(rewritePiecewise(source)))
+fun normalizeMath(source: String): String =
+    detachStyledScripts(dropSpacesAndMinus(groupAfterOpenBrace(rewriteOperatorScripts(rewritePiecewise(source)))))
+
+/** A sign or operator name right after an escaped opening brace, as in `\{-3i\}` or `\{\pm1\}`. */
+private val AfterOpenBrace = Regex("""\\\{\s*(-|\\pm|\\mp|\\(?:arcsin|arccos|arctan|sinh|cosh|tanh|sin|cos|tan|cot|sec|csc|log|ln|exp|arg|det|dim|ker|gcd)(?![a-zA-Z]))""")
+
+/**
+ * The renderer doesn't treat `\{` as an opening delimiter, so a minus sign after it gets binary-operator
+ * spacing ("{ − 3i}") and an operator name a leading space. A group around it, `\{{-}3i\}`, renders
+ * as TeX does.
+ */
+internal fun groupAfterOpenBrace(latex: String): String = AfterOpenBrace.replace(latex) { "\\{{${it.groupValues[1]}}" }
+
+/** Function names whose scripts follow the name, as in $\sin^2 x$ or $\log_2 x$ (not $\lim$-style limits). */
+private val OperatorScript = Regex("""\\(arcsin|arccos|arctan|sinh|cosh|tanh|coth|sin|cos|tan|cot|sec|csc|log|ln|lg|exp)(?![a-zA-Z])\s*(?=[\^_])""")
+
+/**
+ * The renderer places scripts on operator names such as `\cos` far from the name, as if the
+ * operator's spacing came first. Writing the name upright instead, `\mathrm{cos}^{23}`, keeps the
+ * script on it (with [detachStyledScripts] fixing its height); the operator's thin space before the
+ * argument is restored with `\,`, except before an opening bracket, where TeX adds none either.
+ */
+internal fun rewriteOperatorScripts(latex: String): String {
+    if ('\\' !in latex) return latex
+    val out = StringBuilder()
+    var i = 0
+    while (true) {
+        val m = OperatorScript.find(latex, i) ?: break
+        out.append(latex, i, m.range.first).append("\\mathrm{").append(m.groupValues[1]).append('}')
+        var j = m.range.last + 1
+        // Copy the scripts: one or two of ^ / _, each with a brace group, a command or a single character.
+        while (j < latex.length && (latex[j] == '^' || latex[j] == '_')) {
+            val start = j++
+            while (j < latex.length && latex[j] == ' ') j++
+            j = when {
+                j >= latex.length -> j
+                latex[j] == '{' -> {
+                    var depth = 0
+                    var k = j
+                    while (k < latex.length) {
+                        if (latex[k] == '{') depth++ else if (latex[k] == '}' && --depth == 0) break
+                        k++
+                    }
+                    k + 1
+                }
+                latex[j] == '\\' -> {
+                    var k = j + 1
+                    while (k < latex.length && latex[k].isLetter()) k++
+                    if (k == j + 1) k + 1 else k
+                }
+                else -> j + 1
+            }.coerceAtMost(latex.length)
+            out.append(latex, start, j)
+        }
+        var k = j
+        while (k < latex.length && latex[k] == ' ') k++
+        val next = latex.substring(k)
+        val opening = next.isEmpty() || next[0] in "([|" || next.startsWith("\\{") || next.startsWith("\\left") ||
+            next.startsWith("\\big") || next.startsWith("\\Big") || next.startsWith("\\,")
+        if (!opening) out.append("\\,")
+        i = if (opening) j else k
+    }
+    out.append(latex, i, latex.length)
+    return out.toString()
+}
 
 /** A font or text group directly followed by a superscript or subscript, such as `\mathbb{R}^`. */
 private val StyledScript = Regex("""(\\(?:mathbb|mathbf|mathcal|mathfrak|mathsf|mathit|mathrm|boldsymbol|operatorname|text[a-z]*|mbox)\{[^{}]*\})(?=[\^_])""")

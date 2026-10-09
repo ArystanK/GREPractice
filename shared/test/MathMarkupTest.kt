@@ -7,6 +7,8 @@ import kz.arctan.grepractice.ui.math.isInsideMath
 import kz.arctan.grepractice.ui.math.mathToPlain
 import kz.arctan.grepractice.ui.math.normalizeMath
 import kz.arctan.grepractice.ui.math.parseMath
+import kz.arctan.grepractice.ui.math.groupAfterOpenBrace
+import kz.arctan.grepractice.ui.math.rewriteOperatorScripts
 import kz.arctan.grepractice.ui.math.rewritePiecewise
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -96,6 +98,28 @@ class MathMarkupTest {
         assertEquals("""\mathbb{Z}{}_{10}+\mathbf{v}{}_1""", normalizeMath("""\mathbb{Z}_{10}+\mathbf{v}_1"""))
         assertEquals("""5\text{ cm}{}^2""", normalizeMath("""5\text{ cm}^2"""))
         assertEquals("""\mathbb{R}\to{}x^2""", normalizeMath("""\mathbb{R}\to x^2"""))
+    }
+
+    @Test
+    fun writesScriptedOperatorNamesUpright() {
+        assertEquals("""\mathrm{cos}^{23}\,y""", rewriteOperatorScripts("""\cos^{23} y"""))
+        assertEquals("""\mathrm{sin}^2\,x+\mathrm{log}_2\,x""", rewriteOperatorScripts("""\sin^2 x+\log_2 x"""))
+        assertEquals("""\mathrm{tan}^{-1}(x)""", rewriteOperatorScripts("""\tan^{-1}(x)"""))
+        assertEquals("""\mathrm{log}_b^{2}\,x""", rewriteOperatorScripts("""\log_b^{2} x"""))
+        // Unscripted names and longer commands are left alone.
+        assertEquals("""\sin x+\sinh y+\lim_{x\to0}+\mathrm{cosh}^2""", rewriteOperatorScripts("""\sin x+\sinh y+\lim_{x\to0}+\cosh^2"""))
+        // Through the whole pipeline, the upright name also gets its script detached.
+        assertEquals("""\mathrm{cos}{}^3\,t""", normalizeMath("""\cos^3 t"""))
+    }
+
+    @Test
+    fun groupsSignsAfterAnOpeningBrace() {
+        assertEquals("""\{{-}3i\}""", groupAfterOpenBrace("""\{-3i\}"""))
+        assertEquals("""\{{\pm}1,\pm i\}""", groupAfterOpenBrace("""\{\pm1,\pm i\}"""))
+        assertEquals("""\left\{{\cos}\alpha z\right\}""", groupAfterOpenBrace("""\left\{\cos\alpha z\right\}"""))
+        // Not after plain group braces, and not for other commands or longer names.
+        assertEquals("""{-1}+\{\alpha\}+\{\sinc x\}""", groupAfterOpenBrace("""{-1}+\{\alpha\}+\{\sinc x\}"""))
+        assertEquals("""\{{\minus}2,\minus1\}""", normalizeMath("""\{-2,-1\}"""))
     }
 
     @Test
