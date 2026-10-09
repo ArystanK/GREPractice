@@ -32,8 +32,11 @@ import kz.arctan.grepractice.Screen
 import kz.arctan.grepractice.data.formatDateTime
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.PracticeResult
+import kz.arctan.grepractice.practice.ScoreScale
 import kz.arctan.grepractice.practice.TopicSummary
 import kz.arctan.grepractice.practice.formatDuration
+import kz.arctan.grepractice.practice.practiceTestScore
+import kz.arctan.grepractice.practice.predictedSessionScore
 import kz.arctan.grepractice.practice.topicSummaries
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -141,7 +144,10 @@ private fun ResultRow(r: PracticeResult, onOpen: () -> Unit, onDelete: () -> Uni
                 Text(r.title, fontWeight = FontWeight.SemiBold)
                 Text(
                     "${r.mode.label} · ${formatDateTime(r.startedAt)} · ${formatDuration(r.durationMs)}" +
-                        if (r.timedOut) " · timed out" else "",
+                        (if (r.timedOut) " · timed out" else "") +
+                        (practiceTestScore(r)?.let { " · GRE ${it.scaled}" + if (it.conversion.scale == ScoreScale.Pre2001) " (pre-2001 scale)" else "" }
+                            ?: predictedSessionScore(r)?.let { " · predicted ≈ $it" }
+                            ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

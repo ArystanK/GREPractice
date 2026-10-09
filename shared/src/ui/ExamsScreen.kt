@@ -28,9 +28,12 @@ import kz.arctan.grepractice.AppViewModel
 import kz.arctan.grepractice.Screen
 import kz.arctan.grepractice.data.formatDateTime
 import kz.arctan.grepractice.model.Gre
+import kz.arctan.grepractice.practice.GreScores
 import kz.arctan.grepractice.practice.PracticeTest
+import kz.arctan.grepractice.practice.ScoreScale
 import kz.arctan.grepractice.practice.findPracticeTests
 import kz.arctan.grepractice.practice.formatDuration
+import kz.arctan.grepractice.practice.practiceTestScore
 
 /** Entry point of "Simulated exam": the bank's full practice tests, plus a randomly assembled exam. */
 @Composable
@@ -98,16 +101,25 @@ fun ExamsScreen(vm: AppViewModel) {
 @Composable
 private fun PracticeTestCard(vm: AppViewModel, test: PracticeTest, onStartTimed: () -> Unit, onStartUntimed: () -> Unit) {
     val attempts = vm.repo.results.filter { it.testId == test.id }
-    val best = attempts.maxByOrNull { it.correct }
+    val best = attempts.maxByOrNull { practiceTestScore(it)?.raw ?: it.correct }
+    val bestScore = best?.let(::practiceTestScore)
     val latest = attempts.maxByOrNull { it.startedAt }
     val fb = LocalFeedbackColors.current
+    val conversion = GreScores.conversionFor(test.id)
 
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(test.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    "${test.questions.size} questions · ${formatDuration(test.timeLimitMs)}",
+                    "${test.questions.size} questions · ${formatDuration(test.timeLimitMs)}" +
+                        (conversion?.let {
+                            " · scored with form ${it.form}" + when {
+                                it.scale == ScoreScale.Pre2001 -> " (pre-2001 scale)"
+                                !it.official -> " (unofficial test)"
+                                else -> ""
+                            }
+                        } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -115,12 +127,12 @@ private fun PracticeTestCard(vm: AppViewModel, test: PracticeTest, onStartTimed:
             if (best != null) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        "${best.correct}/${best.total}",
+                        bestScore?.scaled?.toString() ?: "${best.correct}/${best.total}",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = if (best.percent >= 70) fb.correct else if (best.percent < 40) fb.incorrect else MaterialTheme.colorScheme.onSurface,
                     )
-                    Text("best", style = MaterialTheme.typography.labelSmall)
+                    Text(if (bestScore != null) "best · ${best.correct}/${best.total}" else "best", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -128,7 +140,8 @@ private fun PracticeTestCard(vm: AppViewModel, test: PracticeTest, onStartTimed:
             when {
                 latest == null -> "Not attempted yet"
                 else -> "${attempts.size} attempt${if (attempts.size == 1) "" else "s"} · last ${formatDateTime(latest.startedAt)}: " +
-                    "${latest.correct}/${latest.total}" + if (latest.timeLimitMs == null) " (untimed)" else ""
+                    "${latest.correct}/${latest.total}" + (practiceTestScore(latest)?.let { ", GRE ${it.scaled}" } ?: "") +
+                    if (latest.timeLimitMs == null) " (untimed)" else ""
             },
             style = MaterialTheme.typography.bodySmall,
         )

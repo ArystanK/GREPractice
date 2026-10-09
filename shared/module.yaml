@@ -24,6 +24,10 @@ dependencies@android:
   - $libs.androidx.credentials.play.services
   - $libs.googleid
 
+test-dependencies:
+  - $kotlin.test
+  - junit:junit:4.13.1
+
 settings:
   kotlin:
     serialization: json

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -40,19 +39,21 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.delay
 import kz.arctan.grepractice.AppViewModel
+import kz.arctan.grepractice.data.Repository
 import kz.arctan.grepractice.data.newId
 import kz.arctan.grepractice.data.nowMillis
 import kz.arctan.grepractice.model.AnswerRecord
 import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.PracticeResult
-import kz.arctan.grepractice.data.Repository
 import kz.arctan.grepractice.practice.Pick
 import kz.arctan.grepractice.practice.PickReason
 import kz.arctan.grepractice.practice.QuestionPicker
 import kz.arctan.grepractice.practice.formatDuration
+import kz.arctan.grepractice.practice.predictedScaled
 
 /** Recently shown question ids are skipped so the same question doesn't come up twice in a row. */
 private const val RECENT_WINDOW = 5
@@ -144,7 +145,7 @@ fun RandomScreen(vm: AppViewModel) {
     LaunchedEffect(Unit) {
         while (true) {
             now = nowMillis()
-            delay(250)
+            delay(250.milliseconds)
         }
     }
     val focus = remember { FocusRequester() }
@@ -182,7 +183,10 @@ fun RandomScreen(vm: AppViewModel) {
             bottomBar = {
                 CenteredBar {
                     Text(
-                        if (attempted == 0) "This sitting: no answers yet" else "This sitting: $correct / $attempted correct",
+                        if (attempted == 0) "This sitting: no answers yet"
+                        else "This sitting: $correct / $attempted correct" +
+                            // From 10 answers on: what a full exam answered this well would score.
+                            (predictedScaled(correct, attempted)?.let { " · predicted GRE ≈ $it" } ?: ""),
                         modifier = Modifier.weight(1f),
                     )
                     if (!checked) {

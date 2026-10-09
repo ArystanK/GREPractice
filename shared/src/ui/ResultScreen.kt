@@ -33,7 +33,12 @@ import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.model.PracticeMode
 import kz.arctan.grepractice.model.PracticeResult
 import kz.arctan.grepractice.practice.PracticeConfig
+import kz.arctan.grepractice.practice.GreScores
+import kz.arctan.grepractice.practice.ScoreScale
+import kz.arctan.grepractice.practice.ScoringRule
 import kz.arctan.grepractice.practice.formatDuration
+import kz.arctan.grepractice.practice.practiceTestScore
+import kz.arctan.grepractice.practice.predictedSessionScore
 
 private enum class ReviewFilter(val label: String) { All("All"), Incorrect("Incorrect"), Unanswered("Unanswered"), Flagged("Flagged") }
 
@@ -126,7 +131,55 @@ private fun ScoreSummary(result: PracticeResult) {
             "${result.correct} correct · ${result.total - result.correct - unanswered} incorrect · $unanswered unanswered",
             style = MaterialTheme.typography.bodySmall,
         )
+        GreScoreNote(result)
     }
+}
+
+/** The scaled score of a practice test from its book's table, or a predicted score for other sessions. */
+@Composable
+private fun GreScoreNote(result: PracticeResult) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val test = practiceTestScore(result)
+    if (test != null) {
+        val c = test.conversion
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatTile("GRE score · form ${c.form}", test.scaled.toString(), Modifier.widthIn(min = 120.dp))
+            test.percentBelow?.let { StatTile("Scored below you", "$it%", Modifier.widthIn(min = 120.dp)) }
+        }
+        val working = when (c.rule) {
+            ScoringRule.RightMinusQuarterWrong -> "Raw score ${test.raw} = ${test.correct} right − ¼ × ${test.incorrect} wrong, rounded"
+            ScoringRule.RightOnly -> "Raw score ${test.raw} = the number of right answers (nothing is subtracted for wrong ones)"
+        }
+        Text(
+            "$working, converted with this test's own table" +
+                (c.percentBelowSource?.let { "; percentages are of $it" } ?: "") + ".",
+            style = MaterialTheme.typography.bodySmall,
+            color = muted,
+        )
+        if (!c.official) {
+            Text(
+                "This is not an official ETS test, and its score table is its author's estimate.",
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalFeedbackColors.current.flag,
+            )
+        }
+        if (c.scale == ScoreScale.Pre2001) {
+            Text(
+                "This test is on the scale used before October 2001, which ran higher. On today's exam, ${test.correct} right answers score about ${test.currentScaleEquivalent}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalFeedbackColors.current.flag,
+            )
+        }
+        return
+    }
+    val predicted = predictedSessionScore(result) ?: return
+    StatTile("Predicted GRE score", "≈ $predicted", Modifier.widthIn(min = 120.dp))
+    Text(
+        "What a full ${Gre.EXAM_QUESTIONS}-question exam with the same share of right answers would score, by the current official table (form ${GreScores.reference.form}). " +
+            "Exam-day stress isn't included; the home screen's prediction allows for it.",
+        style = MaterialTheme.typography.bodySmall,
+        color = muted,
+    )
 }
 
 @Composable

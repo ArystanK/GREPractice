@@ -32,7 +32,11 @@ import kz.arctan.grepractice.Screen
 import kz.arctan.grepractice.SyncState
 import kz.arctan.grepractice.model.Gre
 import kz.arctan.grepractice.practice.findPracticeTests
+import kz.arctan.grepractice.practice.GreScores
+import kz.arctan.grepractice.practice.MIN_ANSWERS_FOR_EXAM_PREDICTION
 import kz.arctan.grepractice.practice.formatDuration
+import kz.arctan.grepractice.practice.predictExamScore
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -58,6 +62,8 @@ fun HomeScreen(vm: AppViewModel) {
                 StatTile("Questions answered", allAnswers.size.toString(), Modifier.widthIn(min = 150.dp))
                 StatTile("Overall accuracy", accuracy, Modifier.widthIn(min = 150.dp))
             }
+
+            PredictedScoreCard(vm)
 
             Text("Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -95,6 +101,70 @@ fun HomeScreen(vm: AppViewModel) {
 
             TopicPerformance(vm)
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PredictedScoreCard(vm: AppViewModel) {
+    val prediction = predictExamScore(vm.repo.results, vm.repo.questions)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    SectionCard(title = "Predicted GRE score") {
+        if (prediction == null) {
+            Text(
+                "Take a practice test or answer at least $MIN_ANSWERS_FOR_EXAM_PREDICTION questions to get a prediction.",
+                color = muted,
+            )
+            TextButton(onClick = { vm.navigate(Screen.Exams) }) { Text("Take a practice test →") }
+            return@SectionCard
+        }
+        val p = prediction
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column {
+                Text("${p.score}", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    when {
+                        p.practiceTests == 0 && p.answered < 60 -> "rough estimate"
+                        p.practiceTests == 0 || p.answered < 200 -> "estimate"
+                        else -> "on exam day"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = muted,
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    p.practiceTestScore?.let { "Practice tests: $it (${p.practiceTests} taken, the latest counting most)" }
+                        ?: "No practice test yet: a full timed one makes this far more reliable.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text("Topics: ${p.topicScore} from ${p.answered} answers, weighted like the exam", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "${p.beforeStress} at your practice level, lowered ${p.beforeStress - p.score} for exam-day stress and time pressure",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+        if (p.weakTopics.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Biggest gains:", style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.align(Alignment.CenterVertically))
+                p.weakTopics.forEach { topic ->
+                    SelectChip(selected = false, onClick = { vm.navigate(Screen.TopicHistory(topic)) }, label = { Text(topic) })
+                }
+            }
+        }
+        if (p.unpracticedShare >= 0.1) {
+            Text(
+                "${(p.unpracticedShare * 100).roundToInt()}% of the exam is in topics you haven't practiced; they're assumed to go like your average.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+            )
+        }
+        Text(
+            "Scored with the current official table (form ${GreScores.reference.form}), which counts right answers only, like the exam.",
+            style = MaterialTheme.typography.bodySmall,
+            color = muted,
+        )
     }
 }
 
